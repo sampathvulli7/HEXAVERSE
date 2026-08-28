@@ -167,6 +167,7 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
 ┌──────────▼──────────────────┐        ┌──────────────▼─────────────────────┐
 │ Qdrant (embedded, no Docker)│        │ Local models                        │
 │  text_chunks  (768-d, bge)  │        │  bge-base-en-v1.5  text embeddings  │
+│    (via fastembed/ONNX, no torch)   │
 │  image_clip   (512-d, CLIP) │        │  CLIP ViT-B/32     image embeddings │
 │ + storage/files/ originals  │        │  faster-whisper    speech-to-text   │
 │ + registry.json bookkeeping │        │  Ollama: qwen2.5:7b (LLM),          │
@@ -212,17 +213,34 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
   including the interpreter. 3.12 (not newest) because ML wheels
   (PyTorch etc.) lag the latest Python.
 
+- **fastembed instead of sentence-transformers.** Text embeddings run the
+  same `bge-base-en-v1.5` model but through ONNX Runtime — no ~2GB PyTorch
+  dependency, so `uv sync` stays fast. PyTorch enters only in Phase 3 when
+  CLIP needs it. Note bge asymmetry: queries get a special prefix
+  (`embed_query`), passages don't (`embed_passages`) — that's how the model
+  was trained; mixing them up silently degrades retrieval quality.
+
+- **Adding a modality is one module + one dict entry.** An extractor returns
+  `[{"text": ..., "locator": {...}}]` units and registers itself in
+  `EXTRACTORS` in [`pipeline.py`](backend/app/ingestion/pipeline.py).
+  Chunking, embedding, indexing, retrieval and citations all operate on that
+  shape and need no changes. Phase 2 (audio) = writing `audio.py`.
+
 ### Code map
 
 | path | responsibility |
 |---|---|
-| `backend/app/main.py` | FastAPI app, endpoint definitions |
-| `backend/app/config.py` | **all** settings, env-overridable — never hardcode elsewhere |
-| `backend/app/models.py` | API schemas = frontend contract |
-| `backend/app/db.py` | Qdrant client + collection creation |
-| `backend/app/registry.py` | file_id → original file bookkeeping |
-| `backend/app/ingestion/` | per-modality pipelines (Phases 1–3) |
-| `backend/app/query/` | retrieval + grounded answering (Phase 1) |
+| [`backend/app/main.py`](backend/app/main.py) | FastAPI app, endpoint definitions |
+| [`backend/app/config.py`](backend/app/config.py) | **all** settings, env-overridable — never hardcode elsewhere |
+| [`backend/app/models.py`](backend/app/models.py) | API schemas = frontend contract |
+| [`backend/app/db.py`](backend/app/db.py) | Qdrant client + collection creation |
+| [`backend/app/registry.py`](backend/app/registry.py) | file_id → original file bookkeeping |
+| [`backend/app/embeddings.py`](backend/app/embeddings.py) | bge text embeddings (cached model, passage/query split) |
+| [`backend/app/ingestion/pipeline.py`](backend/app/ingestion/pipeline.py) | extract → chunk → embed → index orchestration; `EXTRACTORS` registry |
+| [`backend/app/ingestion/pdf.py`](backend/app/ingestion/pdf.py) / [`docx.py`](backend/app/ingestion/docx.py) / [`textfile.py`](backend/app/ingestion/textfile.py) | per-format extractors → `{text, locator}` units |
+| [`backend/app/ingestion/chunking.py`](backend/app/ingestion/chunking.py) | 350-word chunks, 50 overlap, never across page boundaries |
+| [`backend/app/query/retrieve.py`](backend/app/query/retrieve.py) | embed question → nearest chunks from Qdrant |
+| [`backend/app/query/answer.py`](backend/app/query/answer.py) | grounded prompt, Ollama call, offline fallback |
 | `backend/storage/` | originals, vector DB, registry (gitignored, auto-created) |
 
 ---
@@ -239,7 +257,13 @@ Interactive version at `http://localhost:8000/docs` (auto-generated).
 | `GET /files` | — | list of ingested files |
 | `GET /files/{file_id}` | — | the original file (bytes) |
 
-A citation object (see `app/models.py` for the authoritative version):
+`POST /ingest` status values: **`indexed`** (extracted, chunked, embedded,
+searchable — `chunks_indexed` says how many chunks), **`stored`** (saved but
+not yet searchable — audio/images until Phases 2–3), **`failed`** (saved but
+extraction/indexing errored; see `detail`).
+
+A citation object (see [`app/models.py`](backend/app/models.py) for the
+authoritative version):
 
 ```json
 {
@@ -282,6 +306,14 @@ single source of truth for every setting and its default is
   one process; kill duplicate servers (same command as above).
 - **Windows: activation/permission errors** — no activation needed; always
   run via `uv run …` from the `backend/` folder.
+- **Answer starts with `[LLM unavailable: …]`** — retrieval worked, but the
+  LLM couldn't be reached. Start it with `ollama serve`, and make sure the
+  model is pulled: `ollama pull qwen2.5:7b-instruct`.
+- **First `/ingest` or `/query` is slow** — one-time costs: the first ingest
+  downloads the embedding model (~200MB); the first query loads the LLM into
+  RAM (~15s). Subsequent calls are fast. Pre-warm both before a demo.
+- **A PDF indexes 0 chunks** — it's likely a scanned/image-only PDF with no
+  extractable text; OCR for those lands in Phase 3 (vision pipeline).
 
 ---
 
