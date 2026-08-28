@@ -46,6 +46,21 @@ uv run uvicorn app.main:app --reload
 Open **http://localhost:8000** — you'll land on the interactive API explorer
 (Swagger UI), where you can upload files and run queries from the browser.
 
+**For generated answers** (retrieval works without this), install
+[Ollama](https://ollama.com/download) and pull the LLM (~4.7GB, one-time):
+
+```bash
+brew install ollama          # macOS; Windows/Linux: installer from ollama.com
+ollama serve                 # leave running (or use the desktop app)
+ollama pull qwen2.5:7b-instruct
+```
+
+If Ollama isn't running, `/query` still returns the retrieved sources with a
+notice instead of a generated answer — the system degrades gracefully.
+
+The first `/ingest` call downloads the embedding model (~200MB, one-time) and
+the first `/query` loads the LLM into RAM (~15s); both are instant afterwards.
+
 Smoke test from a terminal:
 
 ```bash
@@ -274,8 +289,9 @@ single source of truth for every setting and its default is
 
 - [x] **Phase 0** — skeleton: API surface, config system, storage, vector
       DB wiring, stub query
-- [ ] **Phase 1** — text RAG end-to-end: PDF/DOCX extraction, chunking,
-      bge embeddings, retrieval, grounded answers via Ollama
+- [x] **Phase 1** — text RAG end-to-end: PDF/DOCX/TXT extraction, chunking,
+      bge embeddings (fastembed/ONNX — no PyTorch), retrieval, grounded
+      cited answers via Ollama, graceful degradation when LLM is offline
 - [ ] **Phase 2** — audio: Whisper transcription, timestamped chunks,
       play-from-citation
 - [ ] **Phase 3** — images: vision-LLM captions + OCR into the text index,

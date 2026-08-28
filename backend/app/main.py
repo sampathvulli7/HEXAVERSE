@@ -14,6 +14,9 @@ from fastapi.responses import FileResponse, RedirectResponse
 from app import registry
 from app.config import settings
 from app.db import ensure_collections
+from app.ingestion import pipeline
+from app.query.answer import generate_answer
+from app.query.retrieve import retrieve
 from app.models import (
     Citation,
     FileInfo,
@@ -65,42 +68,50 @@ async def ingest(file: UploadFile) -> IngestResponse:
 
     record = registry.register_file(file.filename, modality, content)
 
-    # Phase 1+: route to the modality's ingestion pipeline here
-    # (extract/transcribe/caption -> chunk -> embed -> index).
+    if modality not in pipeline.EXTRACTORS:
+        return IngestResponse(
+            file_id=record["file_id"],
+            filename=record["filename"],
+            modality=modality,
+            status="stored",
+            detail=f"Stored. Indexing for {modality!r} arrives in Phase 2 (audio) / 3 (image).",
+        )
+    try:
+        chunks_indexed = pipeline.ingest_file(record)
+    except Exception as exc:
+        return IngestResponse(
+            file_id=record["file_id"],
+            filename=record["filename"],
+            modality=modality,
+            status="failed",
+            detail=f"Stored, but indexing failed: {exc}",
+        )
     return IngestResponse(
         file_id=record["file_id"],
         filename=record["filename"],
         modality=modality,
-        status="stored",
-        detail="Stored. Indexing pipeline arrives in Phase 1.",
+        status="indexed",
+        chunks_indexed=chunks_indexed,
     )
 
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    # Phase 1 replaces this stub with: embed question -> vector search ->
-    # grounded LLM answer. The response shape is already final.
-    files = registry.list_files()
-    stub_citations = [
+    hits = retrieve(request.question, request.top_k)
+    answer = generate_answer(request.question, hits)
+    citations = [
         Citation(
-            n=i + 1,
-            file_id=f["file_id"],
-            source_file=f["filename"],
-            modality=f["modality"],
-            locator=Locator(page=1),
-            text="(stub) This chunk would contain the retrieved passage.",
-            score=0.99,
+            n=i,
+            file_id=hit["file_id"],
+            source_file=hit["source_file"],
+            modality=hit["modality"],
+            locator=Locator(**(hit.get("locator") or {})),
+            text=hit["text"],
+            score=hit["score"],
         )
-        for i, f in enumerate(files[: request.top_k])
+        for i, hit in enumerate(hits, start=1)
     ]
-    return QueryResponse(
-        answer=(
-            f'(stub) You asked: "{request.question}". Real retrieval and '
-            f"grounded answering arrive in Phase 1. "
-            f"{len(files)} file(s) currently stored."
-        ),
-        citations=stub_citations,
-    )
+    return QueryResponse(answer=answer, citations=citations)
 
 
 @app.get("/files")

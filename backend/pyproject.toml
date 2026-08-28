@@ -9,6 +9,10 @@ dependencies = [
     "python-multipart>=0.0.9",   # multipart parsing for file uploads
     "pydantic-settings>=2.4",    # .env-driven config
     "qdrant-client>=1.10",       # vector DB (embedded local mode for dev)
+    "fastembed>=0.8.0",
+    "pymupdf>=1.28.2",
+    "python-docx>=1.2.0",
+    "openai>=3.5.0",
 ]
 
 # Later phases add their own dependency groups here so the skeleton stays
