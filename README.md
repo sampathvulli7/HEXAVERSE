@@ -278,7 +278,7 @@ authoritative version):
 }
 ```
 
-Supported upload types: `.pdf .docx .doc .png .jpg .jpeg .webp .mp3 .wav
+Supported upload types: `.pdf .docx .png .jpg .jpeg .webp .mp3 .wav
 .m4a .ogg .txt .md`
 
 ---

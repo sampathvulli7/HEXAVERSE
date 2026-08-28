@@ -17,7 +17,9 @@ from app.models import Modality
 EXTENSION_TO_MODALITY: dict[str, Modality] = {
     ".pdf": "pdf",
     ".docx": "docx",
-    ".doc": "docx",
+    # legacy .doc needs a converter (e.g. LibreOffice) — deliberately
+    # rejected for now so users get a clear "unsupported" message
+    # instead of a confusing parse failure.
     ".png": "image",
     ".jpg": "image",
     ".jpeg": "image",
