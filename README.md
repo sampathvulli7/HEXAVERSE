@@ -13,6 +13,7 @@ image and audio intelligence.*
 - [🚀 I just want to run it](#-quick-start) — setup in ~2 minutes
 - [💡 I want to understand how it works](#-how-it-works) — the concepts, no code
 - [🏗 I want the full architecture](#-architecture-in-depth) — components, design decisions and why
+- [🖥 Frontend docs](frontend/README.md) — the web UI: stack, components, citation flow
 - [📖 API reference](#-api-reference) — endpoints and response shapes
 - [🔧 Configuration](#-configuration) · [🩹 Troubleshooting](#-troubleshooting)
 - [🗺 Roadmap](#-roadmap) · [🌿 Team workflow](#-team-workflow)
@@ -71,6 +72,20 @@ curl -F "file=@/path/to/some.pdf" http://localhost:8000/ingest
 curl -X POST http://localhost:8000/query -H 'Content-Type: application/json' \
      -d '{"question": "what is this report about?"}'
 ```
+
+### The web UI
+
+With the backend running, start the frontend (needs [Node.js](https://nodejs.org) ≥ 20):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** — upload files, ask questions, click
+citations to open sources (PDF at the cited page, audio playing from the
+cited second). Full frontend docs: [`frontend/README.md`](frontend/README.md).
 
 No Docker, no database server, no API keys needed — the vector DB runs
 embedded, storage is a local folder, and (from Phase 1) the LLM runs locally
@@ -148,7 +163,7 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
 ### Components
 
 ```
-┌───────────────────────── FRONTEND (Vite + React, planned) ─────────────────────┐
+┌───────────────────────── FRONTEND (Vite + React — built) ──────────────────────┐
 │  Upload zone · chat box · answer with [n] citation chips · citation drawer      │
 │  (PDF page viewer / image lightbox / audio player seeked to timestamp)          │
 └──────────────────┬─────────────────────────────────┬───────────────────────────┘
@@ -351,7 +366,10 @@ single source of truth for every setting and its default is
       CLIP index for text↔image search, image-as-query
 - [ ] **Phase 4** — cross-format links (transcript ↔ paragraph ↔ screenshot)
 - [ ] **Phase 5** — demo dataset, hardening, one-command startup
-- [ ] Frontend (Vite + React): chat, upload, citation drawer
+- [x] Frontend (Vite + React): chat with citation chips, drag-and-drop
+      upload, library, citation drawer (PDF-at-page / audio-at-timestamp /
+      full transcripts) — see [`frontend/README.md`](frontend/README.md);
+      image thumbnails & related-files strip land with Phases 3–4
 
 ---
 
