@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     llm_model: str = "qwen2.5:7b-instruct"
     vision_model: str = "qwen2.5vl:7b"
 
+    # --- cross-format links (Phase 4) ---
+    # A new chunk links to its nearest chunks from OTHER modalities when
+    # their similarity clears the threshold. Links are stored both ways.
+    related_max_links: int = 3
+    related_min_score: float = 0.55
+
     # --- API ---
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 

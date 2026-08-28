@@ -18,7 +18,43 @@ function locatorLabel(citation) {
   return 'whole file'
 }
 
-export default function CitationDrawer({ citation, onClose }) {
+const MODALITY_ICON = { pdf: '📄', docx: '📝', text: '🗒', image: '🖼', audio: '🎙' }
+
+// Cross-format links (Phase 4): files whose content is semantically close
+// to this cited chunk — e.g. the screenshot and call that a paragraph
+// relates to. Clicking opens the original file.
+function RelatedStrip({ relatedIds, files }) {
+  const related = relatedIds
+    .map((id) => files.find((f) => f.file_id === id))
+    .filter(Boolean)
+  if (!related.length) return null
+  return (
+    <>
+      <h3 className="drawer-label">Related across formats</h3>
+      <div className="related-strip">
+        {related.map((f) => (
+          <a
+            key={f.file_id}
+            className="related-card"
+            href={fileUrl(f.file_id)}
+            target="_blank"
+            rel="noreferrer"
+            title={`open ${f.filename}`}
+          >
+            {f.modality === 'image' ? (
+              <img className="related-thumb" src={fileUrl(f.file_id)} alt="" />
+            ) : (
+              <span className="related-icon">{MODALITY_ICON[f.modality] ?? '📎'}</span>
+            )}
+            <span className="related-name">{f.filename}</span>
+          </a>
+        ))}
+      </div>
+    </>
+  )
+}
+
+export default function CitationDrawer({ citation, files = [], onClose }) {
   const audioRef = useRef(null)
   const [chunks, setChunks] = useState(null) // null = not loaded yet
 
@@ -78,6 +114,8 @@ export default function CitationDrawer({ citation, onClose }) {
             ⬇ download {citation.source_file}
           </a>
         )}
+
+        <RelatedStrip relatedIds={citation.related_file_ids || []} files={files} />
 
         {chunks === null ? (
           <button

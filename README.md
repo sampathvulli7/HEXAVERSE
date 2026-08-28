@@ -256,6 +256,15 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
   is a config knob: `WHISPER_MODEL=medium` in `.env` for better accuracy,
   `base` for speed (default `small`).
 
+- **Cross-format links are computed at ingest time, mutually.** When a chunk
+  is indexed, its nearest chunks from *other* modalities (above
+  `RELATED_MIN_SCORE`, default 0.55) become its `related_file_ids` — and it
+  is added to theirs, so ingestion order doesn't matter: a PDF ingested
+  first still learns about the call recording ingested last. Cost: one
+  extra vector query per chunk. This is what connects an audio segment to
+  the paragraph and screenshot it discusses. Tune via `RELATED_MIN_SCORE` /
+  `RELATED_MAX_LINKS` in `.env`.
+
 - **Adding a modality is one module + one dict entry.** An extractor returns
   `[{"text": ..., "locator": {...}}]` units and registers itself in
   `EXTRACTORS` in [`pipeline.py`](backend/app/ingestion/pipeline.py).
@@ -368,6 +377,11 @@ single source of truth for every setting and its default is
 - **Image ingest takes ~10–30s per image** — that's the vision model writing
   the caption + transcribing visible text (ingest-time cost only; queries
   are unaffected). Pre-ingest demo images.
+- **A citation shows no "Related across formats"** — links are computed
+  during ingest, so content ingested *before* Phase 4 landed has none:
+  re-upload those files. Also, links only form above the similarity
+  threshold (`RELATED_MIN_SCORE`); unrelated files staying unlinked is the
+  feature working, not a bug.
 
 ---
 
@@ -386,7 +400,11 @@ single source of truth for every setting and its default is
       the text index, CLIP pixel index (via fastembed/ONNX — still no
       PyTorch), RRF fusion across both spaces, image-as-query endpoint
       (`POST /query/image`) with UI support (🖼 button, thumbnails)
-- [ ] **Phase 4** — cross-format links (transcript ↔ paragraph ↔ screenshot)
+- [x] **Phase 4** — cross-format links: every chunk stores `related_file_ids`
+      pointing at strongly-similar content in *other* modalities (computed at
+      ingest, linked mutually in both directions); citations carry them and
+      the drawer shows a "Related across formats" strip
+      (transcript ↔ paragraph ↔ screenshot)
 - [ ] **Phase 5** — demo dataset, hardening, one-command startup
 - [x] Frontend (Vite + React): chat with citation chips, drag-and-drop
       upload, library, citation drawer (PDF-at-page / audio-at-timestamp /

@@ -56,6 +56,7 @@ export default function App() {
         {activeCitation && (
           <CitationDrawer
             citation={activeCitation}
+            files={files}
             onClose={() => setActiveCitation(null)}
           />
         )}

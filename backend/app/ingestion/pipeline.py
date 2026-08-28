@@ -8,7 +8,7 @@ already works on that shape.
 
 from uuid import uuid4
 
-from qdrant_client.models import PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from app.config import settings
 from app.db import get_client
@@ -23,6 +23,48 @@ EXTRACTORS = {
     "audio": audio.extract,
     "image": image.extract,
 }
+
+
+def _link_across_formats(points: list[PointStruct], record: dict) -> None:
+    """Cross-format links: for each new chunk, find strongly-similar chunks
+    from OTHER modalities and store the connection on BOTH sides — so a
+    transcript segment knows about the paragraph and screenshot it relates
+    to, and they know about it, regardless of ingestion order.
+    """
+    client = get_client()
+    other_modalities = Filter(
+        must_not=[
+            FieldCondition(key="modality", match=MatchValue(value=record["modality"]))
+        ]
+    )
+    for point in points:
+        neighbors = client.query_points(
+            collection_name=settings.text_collection,
+            query=point.vector,
+            query_filter=other_modalities,
+            limit=settings.related_max_links,
+            score_threshold=settings.related_min_score,
+            with_payload=True,
+        ).points
+        if not neighbors:
+            continue
+
+        related = sorted({n.payload["file_id"] for n in neighbors})
+        client.set_payload(
+            collection_name=settings.text_collection,
+            payload={"related_file_ids": related},
+            points=[point.id],
+        )
+        # ...and the reverse direction, one neighbor at a time.
+        for n in neighbors:
+            back_links = set(n.payload.get("related_file_ids") or [])
+            if record["file_id"] not in back_links:
+                back_links.add(record["file_id"])
+                client.set_payload(
+                    collection_name=settings.text_collection,
+                    payload={"related_file_ids": sorted(back_links)},
+                    points=[n.id],
+                )
 
 
 def ingest_file(record: dict) -> int:
@@ -52,6 +94,7 @@ def ingest_file(record: dict) -> int:
         for chunk, vector in zip(chunks, vectors)
     ]
     get_client().upsert(collection_name=settings.text_collection, points=points)
+    _link_across_formats(points, record)
 
     # Images are indexed TWICE, deliberately: their caption above (bge text
     # space — semantic search over what the image is/says) and their raw

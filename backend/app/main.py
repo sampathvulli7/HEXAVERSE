@@ -109,6 +109,7 @@ def _citations(hits: list[dict]) -> list[Citation]:
             locator=Locator(**(hit.get("locator") or {})),
             text=hit["text"],
             score=hit["score"],
+            related_file_ids=hit.get("related_file_ids") or [],
         )
         for i, hit in enumerate(hits, start=1)
     ]

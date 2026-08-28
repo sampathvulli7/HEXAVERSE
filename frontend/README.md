@@ -127,6 +127,11 @@ source navigation", end to end:
 4. "Show full transcript / all indexed passages" calls
    `GET /files/{id}/chunks`; for audio, every transcript row has a ▶ button
    that seeks the player to that row's timestamp.
+5. **Related across formats**: `citations[].related_file_ids` lists files
+   from *other* modalities whose content is semantically close to the cited
+   chunk (computed at ingest). The drawer resolves the ids against the
+   library list and renders a strip of cards (with thumbnails for images);
+   clicking opens the original file.
 
 ## Styling
 
@@ -143,9 +148,8 @@ there is no CSS framework and no build-time CSS tooling.
 - ~~Image-as-query (Phase 3)~~ **done** — the 🖼 button in the ask bar sends
   the picked image (plus any typed question) to `POST /query/image`; the
   response shape is the same `{answer, citations}`, so nothing else changed.
-- **Cross-format links (Phase 4):** `citations[].related_file_ids` is
-  already in the contract — render a "Related across formats" strip in the
-  drawer that looks files up in the library list.
+- ~~Cross-format links (Phase 4)~~ **done** — the drawer's "Related across
+  formats" strip renders `related_file_ids` as clickable cards.
 - **Production build:** `npm run build` outputs static files in `dist/`;
   serve them from anywhere (or mount them in FastAPI) and set
   `VITE_API_URL` at build time.
