@@ -10,7 +10,7 @@ image and audio intelligence.*
 
 **Jump to what you need:**
 
-- [🚀 I just want to run it](#-quick-start) — setup in ~2 minutes
+- [🚀 I just want to run it](#-quick-start) — install → running → first answer, step by step
 - [💡 I want to understand how it works](#-how-it-works) — the concepts, no code
 - [🏗 I want the full architecture](#-architecture-in-depth) — components, design decisions and why
 - [🖥 Frontend docs](frontend/README.md) — the web UI: stack, components, citation flow
@@ -22,8 +22,22 @@ image and audio intelligence.*
 
 ## 🚀 Quick start
 
-The only prerequisite is [uv](https://docs.astral.sh/uv/) — it installs the
-correct Python version itself, so you do **not** need Python preinstalled.
+No Docker, no database server, no API keys, no cloud — the vector DB runs
+embedded, storage is a local folder, and every model runs on your machine.
+Once the models are downloaded, everything works fully offline.
+
+You need two tools installed once, and two terminals running while you work:
+
+| what | why | port |
+|---|---|---|
+| **Terminal 1: backend** (FastAPI) | ingestion, search, answering — the brains | 8000 |
+| **Terminal 2: frontend** (Vite) | the web app you actually use | **5173 ← open this one** |
+| **Ollama** (runs as a background service) | serves the local LLM + vision model | 11434 |
+
+### Step 1 — install the two tools (once)
+
+[uv](https://docs.astral.sh/uv/) manages Python — it installs the right
+Python version itself, so you don't need Python preinstalled:
 
 ```bash
 # macOS / Linux
@@ -33,40 +47,82 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Then:
+[Node.js](https://nodejs.org) ≥ 20 for the frontend (`brew install node` on
+macOS, installer from nodejs.org on Windows). Restart your terminal after
+installing so both are on PATH.
+
+### Step 2 — clone and start the backend (Terminal 1)
 
 ```bash
 git clone https://github.com/sampathvulli7/HEXAVERSE.git
 cd HEXAVERSE
 git switch version_0        # active development branch
 cd backend
-uv sync                     # creates .venv with pinned Python 3.12 + all deps
+uv sync                     # one-time, ~1 min: pinned Python 3.12 + all deps
 uv run uvicorn app.main:app --reload
 ```
 
-Open **http://localhost:8000** — you'll land on the interactive API explorer
-(Swagger UI), where you can upload files and run queries from the browser.
+Leave it running. Sanity check: http://localhost:8000 opens the interactive
+API explorer (Swagger UI).
 
-**For generated answers** (retrieval works without this), install
-[Ollama](https://ollama.com/download) and pull the LLM (~4.7GB, one-time):
+### Step 3 — start the frontend (Terminal 2)
 
 ```bash
-brew install ollama          # macOS; Windows/Linux: installer from ollama.com
-ollama serve                 # leave running (or use the desktop app)
+cd HEXAVERSE/frontend
+npm install                 # one-time, ~30s
+npm run dev
+```
+
+Open **http://localhost:5173**. The dot in the top-right should say
+**backend: connected** — if it says offline, Terminal 1 isn't running.
+
+### Step 4 — install Ollama and pull the two models (once, ~11GB total)
+
+This powers generated answers and image captions. Without it the app still
+retrieves and cites sources — it just shows a notice instead of a written
+answer (graceful degradation, by design).
+
+```bash
+brew install ollama               # macOS; Windows/Linux: installer from ollama.com
+ollama serve                      # leave running (or use the desktop app)
 ollama pull qwen2.5:7b-instruct   # answering LLM (~4.7GB)
 ollama pull qwen2.5vl:7b          # vision model for image captioning (~6GB)
 ```
 
-If Ollama isn't running, `/query` still returns the retrieved sources with a
-notice instead of a generated answer — the system degrades gracefully.
+Other one-time downloads happen automatically on first use: embedding model
+(~200MB, first ingest), Whisper (~460MB, first audio), CLIP (~250MB, first
+image). After that everything is instant except the first query of a session
+(~15s to load the LLM into RAM).
 
-One-time model downloads happen on first use, then everything is instant:
-the first `/ingest` fetches the embedding model (~200MB), the first *audio*
-ingest fetches the Whisper speech-to-text model (~460MB), the first *image*
-ingest or query fetches the CLIP encoders (~250MB), and the first `/query`
-loads the LLM into RAM (~15s).
+### Step 5 — use it (a 3-minute tour)
 
-Smoke test from a terminal:
+1. **Upload** — drag a PDF, DOCX, image, or audio recording into the "Add
+   files" box (or click it to browse). Watch the status: `indexed · N
+   chunks` means it's searchable. Audio takes roughly its own duration to
+   transcribe; images take ~10–30s to caption — both are one-time,
+   ingest-only costs.
+2. **Ask in plain language** — no keywords needed; meaning is what's
+   matched. Things to try, mapped to what they exercise:
+
+   | ask | what it shows off |
+   |---|---|
+   | "summarize what we know about X" | grounded answer synthesized across *all* formats |
+   | "what was said in the call about X?" | audio search with timestamped citation |
+   | "show me the email screenshot" | text→image search (CLIP + caption) |
+   | "which sources mention the screenshot from 14:32?" | cross-referencing between modalities |
+   | something your files don't cover | it says so instead of inventing an answer |
+
+3. **Click any `[n]` citation chip** — the drawer opens with the exact cited
+   passage, the original source (PDF at the cited page / audio playing from
+   the cited second / full-size image), a **"Related across formats"** strip
+   linking to connected files in other modalities, and a full
+   transcript/passages view with clickable timestamps.
+4. **Search by image** — click the 🖼 button, pick an image (optionally type
+   a question first): you get visually similar stored images *plus*
+   documents and audio about the same topic.
+
+Prefer the raw API (scripts, curl, teammates building against it)? See the
+[API reference](#-api-reference); quick smoke test:
 
 ```bash
 curl http://localhost:8000/health
@@ -74,24 +130,6 @@ curl -F "file=@/path/to/some.pdf" http://localhost:8000/ingest
 curl -X POST http://localhost:8000/query -H 'Content-Type: application/json' \
      -d '{"question": "what is this report about?"}'
 ```
-
-### The web UI
-
-With the backend running, start the frontend (needs [Node.js](https://nodejs.org) ≥ 20):
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open **http://localhost:5173** — upload files, ask questions, click
-citations to open sources (PDF at the cited page, audio playing from the
-cited second). Full frontend docs: [`frontend/README.md`](frontend/README.md).
-
-No Docker, no database server, no API keys needed — the vector DB runs
-embedded, storage is a local folder, and (from Phase 1) the LLM runs locally
-via Ollama. Everything works offline.
 
 ---
 
@@ -155,6 +193,34 @@ file format.
 upload ──► extract / transcribe / caption ──► chunk ──► embed ──► Qdrant
 question ──► embed ──► nearest chunks ──► LLM (grounded prompt) ──► answer + [1][2] citations
 ```
+
+### One question, traced end to end
+
+Concretely, here's what happens in the ~10 seconds after you ask
+*"what is the latest status of the water program?"*:
+
+1. The question is embedded twice: by **bge** (to search document chunks,
+   transcript segments and image captions) and by **CLIP's text encoder**
+   (to search raw image pixels).
+2. Qdrant returns the nearest chunks from both collections; the two ranked
+   lists are merged by rank (RRF). Say the top hits are: a DOCX paragraph,
+   an audio segment at 0:00–0:26, and a PDF page-2 chunk.
+3. Those chunks are pasted into the LLM prompt as numbered sources —
+   `[1] (meeting_notes.docx, page 1): …` — with the instruction *answer
+   only from these sources, cite by number, say so if they don't contain
+   the answer*.
+4. The LLM writes: *"The permit delays have been resolved and construction
+   begins in October [2]. The timeline had previously been pushed to Q3
+   2025 [1]…"*
+5. The backend maps each `[n]` back to its chunk's stored origin, so the
+   response carries, for [2]: `review_call.wav, start_sec 0.0, end_sec
+   25.9, related: [meeting_notes.docx, email_screenshot.png]`.
+6. The UI renders the `[n]` as chips; clicking [2] opens the drawer with
+   the transcript passage, the audio player seeked to 0:00, and the
+   related-files strip.
+
+Every piece of that flow is inspectable — nothing in the answer exists
+without a source you can open.
 
 ---
 
@@ -334,11 +400,24 @@ Supported upload types: `.pdf .docx .png .jpg .jpeg .webp .mp3 .wav
 
 ## 🔧 Configuration
 
-Defaults work out of the box. To override per-machine, copy
-`backend/.env.example` to `backend/.env` — options include the Qdrant server
-URL, LLM/vision model names, Ollama URL, and the storage directory. The
-single source of truth for every setting and its default is
-`backend/app/config.py`.
+Defaults work out of the box — configure nothing and it runs. To override
+per-machine, copy `backend/.env.example` to `backend/.env` and set only what
+you need. The single source of truth for every setting and its default is
+[`backend/app/config.py`](backend/app/config.py); the ones worth knowing:
+
+| setting (in `.env`) | default | when you'd change it |
+|---|---|---|
+| `WHISPER_MODEL` | `small` | `medium` for better transcripts (slower), `base` for speed |
+| `LLM_MODEL` | `qwen2.5:7b-instruct` | smaller machine → `qwen2.5:3b`; any Ollama model works |
+| `VISION_MODEL` | `qwen2.5vl:7b` | smaller machine → `qwen2.5vl:3b` |
+| `LLM_BASE_URL` | `http://localhost:11434/v1` | point at another machine's Ollama, or any OpenAI-compatible API (cloud adapter) |
+| `RELATED_MIN_SCORE` | `0.55` | raise for fewer/stronger cross-format links, lower for more |
+| `RELATED_MAX_LINKS` | `3` | max related files per chunk |
+| `QDRANT_URL` | *(unset → embedded)* | set to a Qdrant server URL for multi-process/production use |
+| `STORAGE_DIR` | `backend/storage` | move uploaded files + index elsewhere (e.g. bigger disk) |
+
+Frontend: `VITE_API_URL` in `frontend/.env.local` points the UI at a backend
+on another machine (see [frontend/README.md](frontend/README.md#run-it)).
 
 ---
 
