@@ -23,6 +23,7 @@ export const health = () => fetch(`${API}/health`).then(json)
 
 export const listFiles = () => fetch(`${API}/files`).then(json)
 
+export const deleteFile = (fileId) => fetch(`${API}/files/${fileId}`, { method: 'DELETE' }).then(json)
 // URL of the original file (PDF viewer, <img>, <audio> all point here).
 export const fileUrl = (fileId) => `${API}/files/${fileId}`
 

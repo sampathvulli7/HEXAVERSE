@@ -71,3 +71,17 @@ def get_file(file_id: str) -> dict | None:
 
 def list_files() -> list[dict]:
     return sorted(_load().values(), key=lambda f: f["uploaded_at"], reverse=True)
+
+
+def delete_file(file_id: str) -> bool:
+    """Remove a file from the registry and delete it from disk."""
+    registry = _load()
+    if file_id not in registry:
+        return False
+    
+    record = registry.pop(file_id)
+    stored_path = Path(record["stored_path"])
+    stored_path.unlink(missing_ok=True)
+    
+    _save(registry)
+    return True
