@@ -11,13 +11,16 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 from app import registry
 from app.config import settings
-from app.db import ensure_collections
+from app.db import ensure_collections, get_client
 from app.ingestion import pipeline
 from app.query.answer import generate_answer
 from app.query.retrieve import retrieve
 from app.models import (
+    ChunkInfo,
     Citation,
     FileInfo,
     IngestResponse,
@@ -125,3 +128,25 @@ def get_file(file_id: str) -> FileResponse:
     if record is None:
         raise HTTPException(status_code=404, detail="Unknown file_id")
     return FileResponse(record["stored_path"], filename=record["filename"])
+
+
+@app.get("/files/{file_id}/chunks", response_model=list[ChunkInfo])
+def get_file_chunks(file_id: str) -> list[ChunkInfo]:
+    """All indexed chunks of one file, in source order — e.g. the full
+    transcript of an audio file, or every indexed passage of a document."""
+    if registry.get_file(file_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown file_id")
+    points, _ = get_client().scroll(
+        collection_name=settings.text_collection,
+        scroll_filter=Filter(
+            must=[FieldCondition(key="file_id", match=MatchValue(value=file_id))]
+        ),
+        limit=1000,
+        with_payload=True,
+    )
+    chunks = [
+        ChunkInfo(text=p.payload["text"], locator=Locator(**(p.payload.get("locator") or {})))
+        for p in points
+    ]
+    chunks.sort(key=lambda c: (c.locator.page or 0, c.locator.start_sec or 0.0))
+    return chunks

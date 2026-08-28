@@ -60,3 +60,11 @@ class FileInfo(BaseModel):
     filename: str
     modality: Modality
     uploaded_at: str
+
+
+class ChunkInfo(BaseModel):
+    """One indexed chunk of a file, in source order — used by the citation
+    drawer to show a full transcript or all indexed passages of a document."""
+
+    text: str
+    locator: Locator

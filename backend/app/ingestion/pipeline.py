@@ -13,14 +13,14 @@ from qdrant_client.models import PointStruct
 from app.config import settings
 from app.db import get_client
 from app.embeddings import embed_passages
-from app.ingestion import docx, pdf, textfile
+from app.ingestion import audio, docx, pdf, textfile
 from app.ingestion.chunking import chunk_units
 
 EXTRACTORS = {
     "pdf": pdf.extract,
     "docx": docx.extract,
     "text": textfile.extract,
-    # "audio": Phase 2 (whisper transcription)
+    "audio": audio.extract,
     # "image": Phase 3 (vision caption + CLIP)
 }
 

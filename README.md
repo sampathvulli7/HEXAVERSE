@@ -58,8 +58,10 @@ ollama pull qwen2.5:7b-instruct
 If Ollama isn't running, `/query` still returns the retrieved sources with a
 notice instead of a generated answer — the system degrades gracefully.
 
-The first `/ingest` call downloads the embedding model (~200MB, one-time) and
-the first `/query` loads the LLM into RAM (~15s); both are instant afterwards.
+One-time model downloads happen on first use, then everything is instant:
+the first `/ingest` fetches the embedding model (~200MB), the first *audio*
+ingest fetches the Whisper speech-to-text model (~460MB), and the first
+`/query` loads the LLM into RAM (~15s).
 
 Smoke test from a terminal:
 
@@ -220,6 +222,14 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
   (`embed_query`), passages don't (`embed_passages`) — that's how the model
   was trained; mixing them up silently degrades retrieval quality.
 
+- **Audio chunks are merged Whisper segments, not raw ones.** Whisper emits
+  ~5–15s segments — too small to retrieve well. `audio.py` merges consecutive
+  segments until ~250 words or 90 seconds, keeping the merged span's
+  start/end times as the locator: big enough for good retrieval, short
+  enough that a cited span is actually listenable. Transcription accuracy
+  is a config knob: `WHISPER_MODEL=medium` in `.env` for better accuracy,
+  `base` for speed (default `small`).
+
 - **Adding a modality is one module + one dict entry.** An extractor returns
   `[{"text": ..., "locator": {...}}]` units and registers itself in
   `EXTRACTORS` in [`pipeline.py`](backend/app/ingestion/pipeline.py).
@@ -238,6 +248,7 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
 | [`backend/app/embeddings.py`](backend/app/embeddings.py) | bge text embeddings (cached model, passage/query split) |
 | [`backend/app/ingestion/pipeline.py`](backend/app/ingestion/pipeline.py) | extract → chunk → embed → index orchestration; `EXTRACTORS` registry |
 | [`backend/app/ingestion/pdf.py`](backend/app/ingestion/pdf.py) / [`docx.py`](backend/app/ingestion/docx.py) / [`textfile.py`](backend/app/ingestion/textfile.py) | per-format extractors → `{text, locator}` units |
+| [`backend/app/ingestion/audio.py`](backend/app/ingestion/audio.py) | Whisper speech-to-text → timestamped units (start_sec/end_sec locators) |
 | [`backend/app/ingestion/chunking.py`](backend/app/ingestion/chunking.py) | 350-word chunks, 50 overlap, never across page boundaries |
 | [`backend/app/query/retrieve.py`](backend/app/query/retrieve.py) | embed question → nearest chunks from Qdrant |
 | [`backend/app/query/answer.py`](backend/app/query/answer.py) | grounded prompt, Ollama call, offline fallback |
@@ -256,6 +267,7 @@ Interactive version at `http://localhost:8000/docs` (auto-generated).
 | `POST /query` | `{"question": str, "top_k": int=8}` | `{answer, citations: [...]}` |
 | `GET /files` | — | list of ingested files |
 | `GET /files/{file_id}` | — | the original file (bytes) |
+| `GET /files/{file_id}/chunks` | — | all indexed chunks of one file, in source order — the full transcript of an audio file (with timestamps) or every indexed passage of a document |
 
 `POST /ingest` status values: **`indexed`** (extracted, chunked, embedded,
 searchable — `chunks_indexed` says how many chunks), **`stored`** (saved but
@@ -314,6 +326,13 @@ single source of truth for every setting and its default is
   RAM (~15s). Subsequent calls are fast. Pre-warm both before a demo.
 - **A PDF indexes 0 chunks** — it's likely a scanned/image-only PDF with no
   extractable text; OCR for those lands in Phase 3 (vision pipeline).
+- **Audio transcript has wrong words** — Whisper `small` (the default)
+  trades some accuracy for speed; set `WHISPER_MODEL=medium` in
+  `backend/.env` and re-ingest. Retrieval is often fine anyway (embeddings
+  match meaning, not exact words), but transcripts shown to users look
+  better with `medium`.
+- **Audio ingest is slow** — transcription is roughly real-time on CPU with
+  `small`; long recordings take a while. Pre-ingest demo audio in advance.
 
 ---
 
@@ -324,8 +343,10 @@ single source of truth for every setting and its default is
 - [x] **Phase 1** — text RAG end-to-end: PDF/DOCX/TXT extraction, chunking,
       bge embeddings (fastembed/ONNX — no PyTorch), retrieval, grounded
       cited answers via Ollama, graceful degradation when LLM is offline
-- [ ] **Phase 2** — audio: Whisper transcription, timestamped chunks,
-      play-from-citation
+- [x] **Phase 2** — audio: local Whisper transcription (faster-whisper),
+      segments merged into timestamped chunks (start/end second locators →
+      play-from-citation), full-transcript endpoint
+      (`/files/{id}/chunks`); answers now synthesize across audio + docs
 - [ ] **Phase 3** — images: vision-LLM captions + OCR into the text index,
       CLIP index for text↔image search, image-as-query
 - [ ] **Phase 4** — cross-format links (transcript ↔ paragraph ↔ screenshot)

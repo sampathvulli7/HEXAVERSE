@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     text_embedding_dim: int = 768
     clip_model: str = "ViT-B-32"
     clip_dim: int = 512
+    whisper_model: str = "small"  # speech-to-text; "base" is faster, "medium" more accurate
     llm_base_url: str = "http://localhost:11434/v1"  # Ollama (OpenAI-compatible)
     llm_model: str = "qwen2.5:7b-instruct"
     vision_model: str = "qwen2.5vl:7b"
