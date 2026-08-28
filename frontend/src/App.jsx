@@ -10,7 +10,7 @@
 // State lives here and flows down as props; components stay presentational.
 
 import { useCallback, useEffect, useState } from 'react'
-import { health, listFiles } from './api.js'
+import { health, listFiles, deleteFile } from './api.js'
 import UploadZone from './components/UploadZone.jsx'
 import Library from './components/Library.jsx'
 import Chat from './components/Chat.jsx'
@@ -24,6 +24,15 @@ export default function App() {
   const refreshFiles = useCallback(() => {
     listFiles().then(setFiles).catch(() => setFiles([]))
   }, [])
+
+  const handleDeleteFile = useCallback(async (fileId) => {
+    try {
+      await deleteFile(fileId)
+      refreshFiles()
+    } catch (e) {
+      console.error("Failed to delete file:", e)
+    }
+  }, [refreshFiles])
 
   useEffect(() => {
     health().then(() => setBackendUp(true)).catch(() => setBackendUp(false))
@@ -46,7 +55,7 @@ export default function App() {
       <div className="columns">
         <aside className="sidebar">
           <UploadZone onIngested={refreshFiles} />
-          <Library files={files} />
+          <Library files={files} onDelete={handleDeleteFile} />
         </aside>
 
         <main className="chat-column">

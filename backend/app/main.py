@@ -182,3 +182,19 @@ def get_file_chunks(file_id: str) -> list[ChunkInfo]:
     ]
     chunks.sort(key=lambda c: (c.locator.page or 0, c.locator.start_sec or 0.0))
     return chunks
+
+
+@app.delete("/files/{file_id}")
+def delete_file(file_id: str) -> dict:
+    """Delete a file from the vector DB, the registry, and disk."""
+    if registry.get_file(file_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown file_id")
+    
+    client = get_client()
+    selector = Filter(must=[FieldCondition(key="file_id", match=MatchValue(value=file_id))])
+    
+    client.delete(collection_name=settings.text_collection, points_selector=selector)
+    client.delete(collection_name=settings.image_collection, points_selector=selector)
+    
+    registry.delete_file(file_id)
+    return {"status": "deleted"}

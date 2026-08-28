@@ -2,7 +2,7 @@
 
 const MODALITY_ICON = { pdf: '📄', docx: '📝', text: '🗒', image: '🖼', audio: '🎙' }
 
-export default function Library({ files }) {
+export default function Library({ files, onDelete }) {
   return (
     <section className="library">
       <h2 className="section-title">Library · {files.length}</h2>
@@ -15,6 +15,13 @@ export default function Library({ files }) {
               <span className="file-icon">{MODALITY_ICON[f.modality] ?? '📎'}</span>
               <span className="file-name">{f.filename}</span>
               <span className="file-modality">{f.modality}</span>
+              <button 
+                className="file-delete" 
+                onClick={(e) => { e.stopPropagation(); onDelete?.(f.file_id); }}
+                title="Delete file"
+              >
+                ✕
+              </button>
             </li>
           ))}
         </ul>
