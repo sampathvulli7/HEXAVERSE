@@ -8,64 +8,45 @@ page, image or audio timestamp.
 Built for SIH — problem statement: *Multimodal RAG for cross-format document,
 image and audio intelligence.*
 
-## How it works (one paragraph)
+**Jump to what you need:**
 
-Every uploaded file is broken into **chunks** — a few paragraphs of a PDF, a
-~30-second span of an audio transcript, an AI-written description of an
-image. Each chunk is stored with (1) its text, (2) an **embedding** (a vector
-that encodes its meaning, enabling semantic search) and (3) its **origin**
-(file + page / timestamp / image id — this powers citations). A question is
-embedded the same way, the nearest chunks are retrieved from the vector DB,
-and a local LLM writes an answer using *only* those chunks, citing them by
-number.
+- [🚀 I just want to run it](#-quick-start) — setup in ~2 minutes
+- [💡 I want to understand how it works](#-how-it-works) — the concepts, no code
+- [🏗 I want the full architecture](#-architecture-in-depth) — components, design decisions and why
+- [📖 API reference](#-api-reference) — endpoints and response shapes
+- [🔧 Configuration](#-configuration) · [🩹 Troubleshooting](#-troubleshooting)
+- [🗺 Roadmap](#-roadmap) · [🌿 Team workflow](#-team-workflow)
 
-```
-upload ──► extract/transcribe/caption ──► chunk ──► embed ──► Qdrant
-question ──► embed ──► nearest chunks ──► LLM (grounded) ──► answer + citations
-```
+---
 
-## Repo layout
+## 🚀 Quick start
 
-```
-backend/
-  app/
-    main.py        # FastAPI app: /ingest, /query, /files endpoints
-    config.py      # ALL settings (env-overridable) — no hardcoded values elsewhere
-    db.py          # Qdrant (embedded mode) + collection setup
-    models.py      # API schemas = the backend/frontend contract
-    registry.py    # file_id -> original file bookkeeping
-    ingestion/     # per-modality pipelines (filled in Phases 1-3)
-    query/         # retrieval + grounded answering (filled in Phase 1)
-  storage/         # uploaded originals + vector DB (gitignored, auto-created)
-  pyproject.toml   # dependencies (managed by uv)
-  .env.example     # per-machine config template
-frontend/          # web UI (Vite + React) — coming soon
-```
-
-## Backend: run it
-
-Prerequisite: [uv](https://docs.astral.sh/uv/) (installs and pins Python
-itself — you do **not** need the right Python preinstalled).
+The only prerequisite is [uv](https://docs.astral.sh/uv/) — it installs the
+correct Python version itself, so you do **not** need Python preinstalled.
 
 ```bash
 # macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Windows (PowerShell)
-# powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 Then:
 
 ```bash
+git clone https://github.com/sampathvulli7/HEXAVERSE.git
+cd HEXAVERSE
+git switch version_0        # active development branch
 cd backend
-uv sync                     # creates .venv with pinned Python + deps (~1 min)
+uv sync                     # creates .venv with pinned Python 3.12 + all deps
 uv run uvicorn app.main:app --reload
 ```
 
-The API is now at `http://localhost:8000` — interactive docs at
-`http://localhost:8000/docs`.
+Open **http://localhost:8000** — you'll land on the interactive API explorer
+(Swagger UI), where you can upload files and run queries from the browser.
 
-Quick smoke test:
+Smoke test from a terminal:
 
 ```bash
 curl http://localhost:8000/health
@@ -74,37 +55,242 @@ curl -X POST http://localhost:8000/query -H 'Content-Type: application/json' \
      -d '{"question": "what is this report about?"}'
 ```
 
-## API surface
+No Docker, no database server, no API keys needed — the vector DB runs
+embedded, storage is a local folder, and (from Phase 1) the LLM runs locally
+via Ollama. Everything works offline.
 
-| Endpoint | What it does |
+---
+
+## 💡 How it works
+
+*Read this if you want to understand the system without touching code.*
+
+### The problem
+
+An office accumulates PDFs, Word files, email screenshots, and recorded
+calls. Finding anything is hard for three reasons: normal search matches
+**keywords, not meaning** ("international development funding" won't find a
+report that says "fiscal assistance to partner nations"); every format is a
+**silo** (you can't Ctrl+F a phone call or a screenshot); and even after
+finding documents, a human still has to **read them** to extract the answer.
+
+### The three ideas that fix it
+
+**1. Embeddings — meaning becomes geometry.** An embedding model is a neural
+network that converts text into a list of numbers (a vector) — think of it as
+a *coordinate in a space of meanings*. It's trained so similar meanings land
+close together. Search then becomes: convert everything to coordinates,
+convert the question to a coordinate, return the nearest neighbors. That's
+semantic search, and a **vector database** (we use Qdrant) is a database
+specialized for exactly this.
+
+**2. Normalize every format to text.** Audio becomes a transcript
+(speech-to-text with Whisper). Images get an AI-written description plus any
+text visible in them (a local vision model). PDFs/DOCX get their text
+extracted. Once everything is text, **one embedding model puts all formats in
+the same searchable space** — this is the "shared vector space" from the
+problem statement. Images additionally get a second index via **CLIP**, a
+model trained on 400M image–caption pairs so that images and *short text
+queries* share a coordinate space directly — letting "email screenshot" as a
+text query match raw pixels, and letting an uploaded image act as a query.
+
+**3. RAG — retrieval-augmented generation.** LLMs hallucinate when asked
+about documents they've never seen. So we never ask the LLM the question
+directly: we first *retrieve* the most relevant chunks, paste them into the
+prompt as numbered sources, and instruct it to **answer only from those
+sources, citing by number**. The LLM becomes a reading-comprehension engine
+over our data — and every claim in the answer is traceable to a source.
+
+### The one mental picture to keep
+
+Every file, whatever its format, is broken into **chunks**, and every chunk
+is stored as the same three-part record:
+
+| part | what it is | what it enables |
+|---|---|---|
+| text | the passage / transcript segment / image description | the LLM can read it |
+| vector | its coordinate in meaning-space | semantic search finds it |
+| origin | file + page / timestamp / image id | citations open the real source |
+
+Ingestion produces these records, retrieval finds the nearest ones,
+answering quotes them with their origins attached. Every phase of the
+roadmap is just teaching the system to produce this record from one more
+file format.
+
+```
+upload ──► extract / transcribe / caption ──► chunk ──► embed ──► Qdrant
+question ──► embed ──► nearest chunks ──► LLM (grounded prompt) ──► answer + [1][2] citations
+```
+
+---
+
+## 🏗 Architecture in depth
+
+*Read this if you're developing the system.*
+
+### Components
+
+```
+┌───────────────────────── FRONTEND (Vite + React, planned) ─────────────────────┐
+│  Upload zone · chat box · answer with [n] citation chips · citation drawer      │
+│  (PDF page viewer / image lightbox / audio player seeked to timestamp)          │
+└──────────────────┬─────────────────────────────────┬───────────────────────────┘
+                   │ POST /ingest                    │ POST /query
+┌──────────────────▼─────────────────────────────────▼───────────────────────────┐
+│                              BACKEND (FastAPI)                                   │
+│                                                                                  │
+│  INGESTION (app/ingestion/)                QUERY (app/query/)                    │
+│   route by modality:                        1. embed question (bge + CLIP)       │
+│    pdf.py    → PyMuPDF per page             2. search text_chunks collection     │
+│    docx.py   → python-docx                  3. search image_clip collection      │
+│    audio.py  → faster-whisper (timestamps)  4. fuse ranked lists (RRF)           │
+│    image.py  → vision-LLM caption + OCR     5. build grounded prompt             │
+│                + CLIP pixel embedding       6. call local LLM (Ollama)           │
+│   then: chunk → embed → upsert              7. map [n] citations to origins      │
+└──────────┬──────────────────────────────────────────┬───────────────────────────┘
+           │                                          │
+┌──────────▼──────────────────┐        ┌──────────────▼─────────────────────┐
+│ Qdrant (embedded, no Docker)│        │ Local models                        │
+│  text_chunks  (768-d, bge)  │        │  bge-base-en-v1.5  text embeddings  │
+│  image_clip   (512-d, CLIP) │        │  CLIP ViT-B/32     image embeddings │
+│ + storage/files/ originals  │        │  faster-whisper    speech-to-text   │
+│ + registry.json bookkeeping │        │  Ollama: qwen2.5:7b (LLM),          │
+│                             │        │          qwen2.5vl:7b (vision)      │
+└─────────────────────────────┘        └────────────────────────────────────┘
+```
+
+### Design decisions and why
+
+- **Two vector collections, not one.** Vectors are only comparable within
+  the space of the model that produced them — bge's 768-d text space and
+  CLIP's 512-d space are unrelated coordinate systems. So `text_chunks`
+  holds bge embeddings of *every* modality's text form (the unified index),
+  and `image_clip` holds CLIP embeddings of raw pixels (direct text↔image
+  matching). Queries search both and merge results by rank (Reciprocal Rank
+  Fusion), since raw scores across spaces aren't comparable.
+
+- **Embedded Qdrant instead of a DB server.** `qdrant-client` in local mode
+  runs the DB inside the Python process, persisting to `storage/qdrant/`.
+  Zero infrastructure for teammates; setting `QDRANT_URL` in `.env` switches
+  to a real Qdrant server with no code changes (see `app/db.py`).
+
+- **Provenance stored on every chunk = the citation system.** Each chunk's
+  payload carries `{file_id, source_file, modality, locator}` where locator
+  is `page` / `start_sec,end_sec` / `image_id`. When the LLM cites [2], the
+  backend looks up chunk 2's payload and the frontend knows exactly what to
+  open. Citations aren't a feature bolted on later — they fall out of
+  storing origin from day one.
+
+- **Offline-first, cloud-optional.** All models run locally (government
+  data never leaves the machine — a core requirement of the problem
+  statement's context). The LLM is called through an OpenAI-compatible
+  client pointed at Ollama; changing `LLM_BASE_URL`/`LLM_MODEL` in `.env`
+  swaps in any cloud provider with zero code changes.
+
+- **API shapes frozen in Phase 0.** `app/models.py` is the
+  backend↔frontend contract. `/query` returned the final response shape
+  from the first commit (stubbed), so frontend work never waits on backend
+  intelligence.
+
+- **uv with pinned Python 3.12.** The lockfile (`uv.lock`) plus
+  `.python-version` means every teammate gets a byte-identical environment,
+  including the interpreter. 3.12 (not newest) because ML wheels
+  (PyTorch etc.) lag the latest Python.
+
+### Code map
+
+| path | responsibility |
 |---|---|
-| `GET /health` | liveness check |
-| `POST /ingest` (multipart `file`) | store + index an uploaded file, returns `file_id` |
-| `POST /query` `{question, top_k}` | grounded answer + numbered citations |
-| `GET /files` | list ingested files |
-| `GET /files/{file_id}` | download/view the original (used by citation links) |
+| `backend/app/main.py` | FastAPI app, endpoint definitions |
+| `backend/app/config.py` | **all** settings, env-overridable — never hardcode elsewhere |
+| `backend/app/models.py` | API schemas = frontend contract |
+| `backend/app/db.py` | Qdrant client + collection creation |
+| `backend/app/registry.py` | file_id → original file bookkeeping |
+| `backend/app/ingestion/` | per-modality pipelines (Phases 1–3) |
+| `backend/app/query/` | retrieval + grounded answering (Phase 1) |
+| `backend/storage/` | originals, vector DB, registry (gitignored, auto-created) |
 
-Response shapes live in [`backend/app/models.py`](backend/app/models.py) —
-treat that file as the frontend contract.
+---
 
-## Configuration
+## 📖 API reference
 
-Copy `backend/.env.example` to `backend/.env` and override what you need.
-Defaults work out of the box: embedded Qdrant (no Docker required), storage
-under `backend/storage/`.
+Interactive version at `http://localhost:8000/docs` (auto-generated).
 
-## Roadmap (build phases)
+| Endpoint | Body | Returns |
+|---|---|---|
+| `GET /health` | — | `{"status": "ok"}` |
+| `POST /ingest` | multipart `file` | `{file_id, filename, modality, status, chunks_indexed}` |
+| `POST /query` | `{"question": str, "top_k": int=8}` | `{answer, citations: [...]}` |
+| `GET /files` | — | list of ingested files |
+| `GET /files/{file_id}` | — | the original file (bytes) |
 
-- [x] **Phase 0** — skeleton: API surface, config, storage, vector DB wiring
+A citation object (see `app/models.py` for the authoritative version):
+
+```json
+{
+  "n": 1,
+  "file_id": "35803d0d9d5a",
+  "source_file": "report_2024.pdf",
+  "modality": "pdf",
+  "locator": {"page": 14, "start_sec": null, "end_sec": null, "image_id": null},
+  "text": "the retrieved passage…",
+  "score": 0.82,
+  "related_file_ids": []
+}
+```
+
+Supported upload types: `.pdf .docx .doc .png .jpg .jpeg .webp .mp3 .wav
+.m4a .ogg .txt .md`
+
+---
+
+## 🔧 Configuration
+
+Defaults work out of the box. To override per-machine, copy
+`backend/.env.example` to `backend/.env` — options include the Qdrant server
+URL, LLM/vision model names, Ollama URL, and the storage directory. The
+single source of truth for every setting and its default is
+`backend/app/config.py`.
+
+---
+
+## 🩹 Troubleshooting
+
+- **`localhost:8000` shows `{"detail":"Not Found"}`** — you're on an old
+  version; `git pull`. The root now redirects to `/docs`. The 404 actually
+  means the server *is* running; the API lives at specific paths.
+- **`uv: command not found` after install** — restart your terminal (the
+  installer edits your shell profile).
+- **Port already in use** — a previous server is still running:
+  `pkill -f "uvicorn app.main"` (macOS/Linux) then start again.
+- **Qdrant "already accessed by another instance"** — embedded Qdrant allows
+  one process; kill duplicate servers (same command as above).
+- **Windows: activation/permission errors** — no activation needed; always
+  run via `uv run …` from the `backend/` folder.
+
+---
+
+## 🗺 Roadmap
+
+- [x] **Phase 0** — skeleton: API surface, config system, storage, vector
+      DB wiring, stub query
 - [ ] **Phase 1** — text RAG end-to-end: PDF/DOCX extraction, chunking,
-      embeddings (bge), retrieval, grounded LLM answers via Ollama
+      bge embeddings, retrieval, grounded answers via Ollama
 - [ ] **Phase 2** — audio: Whisper transcription, timestamped chunks,
       play-from-citation
 - [ ] **Phase 3** — images: vision-LLM captions + OCR into the text index,
-      CLIP index for direct text↔image search, image-as-query
+      CLIP index for text↔image search, image-as-query
 - [ ] **Phase 4** — cross-format links (transcript ↔ paragraph ↔ screenshot)
 - [ ] **Phase 5** — demo dataset, hardening, one-command startup
+- [ ] Frontend (Vite + React): chat, upload, citation drawer
 
-## Branches
+---
 
-Active development happens on `version_0`; `main` stays stable.
+## 🌿 Team workflow
+
+- Active development happens on **`version_0`**; `main` stays stable.
+- Runtime data (`backend/storage/`, `.env`) is gitignored — never commit
+  uploaded files or secrets. Commit `uv.lock` (it *is* the reproducible
+  environment).
+- Adding a dependency: `cd backend && uv add <package>` (updates
+  `pyproject.toml` + lockfile together), then commit both.
