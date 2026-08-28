@@ -1,0 +1,56 @@
+"""Central configuration.
+
+Every tunable value (paths, model names, service URLs) lives here and can be
+overridden per-machine via a `backend/.env` file — never hardcode these
+elsewhere in the codebase. See `.env.example` for the template.
+"""
+
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    # --- storage ---
+    storage_dir: Path = BACKEND_DIR / "storage"
+
+    # --- vector DB ---
+    # Embedded Qdrant persists to a local folder. To use a Qdrant server
+    # instead (e.g. in deployment), set qdrant_url and it takes precedence.
+    qdrant_url: str | None = None
+    text_collection: str = "text_chunks"
+    image_collection: str = "image_clip"
+
+    # --- models (used from Phase 1 onward) ---
+    text_embedding_model: str = "BAAI/bge-base-en-v1.5"
+    text_embedding_dim: int = 768
+    clip_model: str = "ViT-B-32"
+    clip_dim: int = 512
+    llm_base_url: str = "http://localhost:11434/v1"  # Ollama (OpenAI-compatible)
+    llm_model: str = "qwen2.5:7b-instruct"
+    vision_model: str = "qwen2.5vl:7b"
+
+    # --- API ---
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @property
+    def files_dir(self) -> Path:
+        return self.storage_dir / "files"
+
+    @property
+    def qdrant_path(self) -> Path:
+        return self.storage_dir / "qdrant"
+
+    @property
+    def registry_path(self) -> Path:
+        return self.storage_dir / "registry.json"
+
+
+settings = Settings()
+settings.files_dir.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,17 @@
+[project]
+name = "hexaverse-backend"
+version = "0.1.0"
+description = "Multimodal RAG backend - ingest, index and query PDF/DOCX/images/audio"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",   # multipart parsing for file uploads
+    "pydantic-settings>=2.4",    # .env-driven config
+    "qdrant-client>=1.10",       # vector DB (embedded local mode for dev)
+]
+
+# Later phases add their own dependency groups here so the skeleton stays
+# light. Install with: uv sync --group ml
+[dependency-groups]
+# ml = ["sentence-transformers", "faster-whisper", "open-clip-torch", "pymupdf", "python-docx", "openai"]
