@@ -53,7 +53,8 @@ Open **http://localhost:8000** — you'll land on the interactive API explorer
 ```bash
 brew install ollama          # macOS; Windows/Linux: installer from ollama.com
 ollama serve                 # leave running (or use the desktop app)
-ollama pull qwen2.5:7b-instruct
+ollama pull qwen2.5:7b-instruct   # answering LLM (~4.7GB)
+ollama pull qwen2.5vl:7b          # vision model for image captioning (~6GB)
 ```
 
 If Ollama isn't running, `/query` still returns the retrieved sources with a
@@ -61,8 +62,9 @@ notice instead of a generated answer — the system degrades gracefully.
 
 One-time model downloads happen on first use, then everything is instant:
 the first `/ingest` fetches the embedding model (~200MB), the first *audio*
-ingest fetches the Whisper speech-to-text model (~460MB), and the first
-`/query` loads the LLM into RAM (~15s).
+ingest fetches the Whisper speech-to-text model (~460MB), the first *image*
+ingest or query fetches the CLIP encoders (~250MB), and the first `/query`
+loads the LLM into RAM (~15s).
 
 Smoke test from a terminal:
 
@@ -230,12 +232,21 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
   including the interpreter. 3.12 (not newest) because ML wheels
   (PyTorch etc.) lag the latest Python.
 
-- **fastembed instead of sentence-transformers.** Text embeddings run the
-  same `bge-base-en-v1.5` model but through ONNX Runtime — no ~2GB PyTorch
-  dependency, so `uv sync` stays fast. PyTorch enters only in Phase 3 when
-  CLIP needs it. Note bge asymmetry: queries get a special prefix
+- **fastembed instead of sentence-transformers/PyTorch — for everything.**
+  Text embeddings (`bge-base-en-v1.5`) *and* both CLIP encoders run through
+  ONNX Runtime, so the project never installs PyTorch at all and `uv sync`
+  stays fast. Note bge asymmetry: queries get a special prefix
   (`embed_query`), passages don't (`embed_passages`) — that's how the model
   was trained; mixing them up silently degrades retrieval quality.
+
+- **Images are indexed twice, on purpose.** Each image's vision-LLM caption
+  (with all visible text transcribed) goes into the bge text index — so
+  "what did the email say?" finds it semantically. Its raw pixels go into
+  the CLIP index — so "email screenshot" matches what it *looks like*, and
+  an uploaded image can be the query. At query time both lists merge via
+  Reciprocal Rank Fusion (rank-based, since scores from different spaces
+  aren't comparable); an image found in *both* lists gets a natural boost
+  and is deduplicated into one citation.
 
 - **Audio chunks are merged Whisper segments, not raw ones.** Whisper emits
   ~5–15s segments — too small to retrieve well. `audio.py` merges consecutive
@@ -264,6 +275,7 @@ question ──► embed ──► nearest chunks ──► LLM (grounded prompt
 | [`backend/app/ingestion/pipeline.py`](backend/app/ingestion/pipeline.py) | extract → chunk → embed → index orchestration; `EXTRACTORS` registry |
 | [`backend/app/ingestion/pdf.py`](backend/app/ingestion/pdf.py) / [`docx.py`](backend/app/ingestion/docx.py) / [`textfile.py`](backend/app/ingestion/textfile.py) | per-format extractors → `{text, locator}` units |
 | [`backend/app/ingestion/audio.py`](backend/app/ingestion/audio.py) | Whisper speech-to-text → timestamped units (start_sec/end_sec locators) |
+| [`backend/app/ingestion/image.py`](backend/app/ingestion/image.py) | vision-LLM caption + verbatim OCR of visible text (CLIP indexing lives in pipeline.py) |
 | [`backend/app/ingestion/chunking.py`](backend/app/ingestion/chunking.py) | 350-word chunks, 50 overlap, never across page boundaries |
 | [`backend/app/query/retrieve.py`](backend/app/query/retrieve.py) | embed question → nearest chunks from Qdrant |
 | [`backend/app/query/answer.py`](backend/app/query/answer.py) | grounded prompt, Ollama call, offline fallback |
@@ -279,7 +291,8 @@ Interactive version at `http://localhost:8000/docs` (auto-generated).
 |---|---|---|
 | `GET /health` | — | `{"status": "ok"}` |
 | `POST /ingest` | multipart `file` | `{file_id, filename, modality, status, chunks_indexed}` |
-| `POST /query` | `{"question": str, "top_k": int=8}` | `{answer, citations: [...]}` |
+| `POST /query` | `{"question": str, "top_k": int=8}` | `{answer, citations: [...]}` — searches all modalities (text index + CLIP image index, rank-fused) |
+| `POST /query/image` | multipart `file` (+ optional `question`, `top_k`) | same shape — image-as-query: visually similar images (CLIP) + related documents/audio (via the image's generated caption) |
 | `GET /files` | — | list of ingested files |
 | `GET /files/{file_id}` | — | the original file (bytes) |
 | `GET /files/{file_id}/chunks` | — | all indexed chunks of one file, in source order — the full transcript of an audio file (with timestamps) or every indexed passage of a document |
@@ -348,6 +361,13 @@ single source of truth for every setting and its default is
   better with `medium`.
 - **Audio ingest is slow** — transcription is roughly real-time on CPU with
   `small`; long recordings take a while. Pre-ingest demo audio in advance.
+- **An image's caption says "(uncaptioned image … vision model
+  unavailable)"** — the vision LLM couldn't be reached during ingest. Pull
+  it (`ollama pull qwen2.5vl:7b`), make sure `ollama serve` is running, and
+  re-upload the image. The image is still findable via CLIP either way.
+- **Image ingest takes ~10–30s per image** — that's the vision model writing
+  the caption + transcribing visible text (ingest-time cost only; queries
+  are unaffected). Pre-ingest demo images.
 
 ---
 
@@ -362,8 +382,10 @@ single source of truth for every setting and its default is
       segments merged into timestamped chunks (start/end second locators →
       play-from-citation), full-transcript endpoint
       (`/files/{id}/chunks`); answers now synthesize across audio + docs
-- [ ] **Phase 3** — images: vision-LLM captions + OCR into the text index,
-      CLIP index for text↔image search, image-as-query
+- [x] **Phase 3** — images: local vision-LLM captions + verbatim OCR into
+      the text index, CLIP pixel index (via fastembed/ONNX — still no
+      PyTorch), RRF fusion across both spaces, image-as-query endpoint
+      (`POST /query/image`) with UI support (🖼 button, thumbnails)
 - [ ] **Phase 4** — cross-format links (transcript ↔ paragraph ↔ screenshot)
 - [ ] **Phase 5** — demo dataset, hardening, one-command startup
 - [x] Frontend (Vite + React): chat with citation chips, drag-and-drop

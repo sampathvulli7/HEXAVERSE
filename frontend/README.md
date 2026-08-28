@@ -88,8 +88,10 @@ src/
     UploadZone.jsx             drag-and-drop / click upload → POST /ingest,
                                per-file status (indexed · N chunks / failed)
     Library.jsx                list of ingested files with modality badges
-    Chat.jsx                   question box, messages, AnswerText (renders [n]
-                               as clickable chips), SourcesRow (citation cards)
+    Chat.jsx                   question box + 🖼 image-as-query button,
+                               messages, AnswerText (renders [n] as clickable
+                               chips), SourcesRow (citation cards, image
+                               thumbnails)
     CitationDrawer.jsx         the source viewer (see next section)
 ```
 
@@ -136,12 +138,11 @@ there is no CSS framework and no build-time CSS tooling.
 
 ## Extending it
 
-- **Image results (Phase 3):** citations with `modality: "image"` already
-  render in the drawer; when the backend starts returning them, thumbnails
-  in `SourcesRow` are the only nice-to-have addition.
-- **Image-as-query (Phase 3):** add an image-attach button to the ask bar
-  that POSTs to the (future) image-query endpoint; the response shape stays
-  `{answer, citations}` so the rest of the UI needs nothing new.
+- ~~Image results (Phase 3)~~ **done** — image citations render thumbnails
+  in `SourcesRow` and full-size in the drawer.
+- ~~Image-as-query (Phase 3)~~ **done** — the 🖼 button in the ask bar sends
+  the picked image (plus any typed question) to `POST /query/image`; the
+  response shape is the same `{answer, citations}`, so nothing else changed.
 - **Cross-format links (Phase 4):** `citations[].related_file_ids` is
   already in the contract — render a "Related across formats" strip in the
   drawer that looks files up in the library list.

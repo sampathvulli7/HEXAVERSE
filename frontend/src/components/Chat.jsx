@@ -3,7 +3,7 @@
 // transparency — every claim links to its source).
 
 import { useRef, useState } from 'react'
-import { query } from '../api.js'
+import { query, queryByImage, fileUrl } from '../api.js'
 
 // Split answer text on [n] markers and turn each into a chip that opens the
 // citation drawer. "[1][3]" style runs are handled since each [n] matches.
@@ -32,6 +32,9 @@ function SourcesRow({ citations, onCite }) {
     <div className="sources-row">
       {citations.map((c) => (
         <button key={c.n} className="source-card" onClick={() => onCite(c)}>
+          {c.modality === 'image' && (
+            <img className="source-thumb" src={fileUrl(c.file_id)} alt="" />
+          )}
           <span className="source-n">[{c.n}]</span>
           <span className="source-file">{c.source_file}</span>
           <span className="source-loc">
@@ -54,15 +57,11 @@ export default function Chat({ onCite }) {
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef(null)
 
-  async function ask(e) {
-    e.preventDefault()
-    const q = question.trim()
-    if (!q || busy) return
-    setQuestion('')
-    setMessages((m) => [...m, { role: 'user', text: q }])
+  async function run(label, request) {
+    setMessages((m) => [...m, { role: 'user', text: label }])
     setBusy(true)
     try {
-      const res = await query(q)
+      const res = await request()
       setMessages((m) => [...m, { role: 'assistant', text: res.answer, citations: res.citations }])
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', text: `Error: ${err.message}`, citations: [] }])
@@ -71,6 +70,23 @@ export default function Chat({ onCite }) {
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
   }
+
+  function ask(e) {
+    e.preventDefault()
+    const q = question.trim()
+    if (!q || busy) return
+    setQuestion('')
+    run(q, () => query(q))
+  }
+
+  function askWithImage(file) {
+    if (!file || busy) return
+    const q = question.trim()
+    setQuestion('')
+    run(q ? `🖼 ${file.name} — ${q}` : `🖼 ${file.name}`, () => queryByImage(file, q))
+  }
+
+  const imageInputRef = useRef(null)
 
   return (
     <div className="chat">
@@ -100,10 +116,29 @@ export default function Chat({ onCite }) {
       </div>
 
       <form className="ask-bar" onSubmit={ask}>
+        <button
+          type="button"
+          className="image-query-btn"
+          title="search by image — finds similar images and related documents/audio"
+          disabled={busy}
+          onClick={() => imageInputRef.current.click()}
+        >
+          🖼
+        </button>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp"
+          hidden
+          onChange={(e) => {
+            askWithImage(e.target.files[0])
+            e.target.value = ''
+          }}
+        />
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder='e.g. "what is the latest status of the water program?"'
+          placeholder='ask anything — or attach an image (🖼) to search by it'
           disabled={busy}
         />
         <button type="submit" disabled={busy || !question.trim()}>Ask</button>

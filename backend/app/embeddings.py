@@ -8,7 +8,7 @@ time and embed_query() at query time.
 
 from functools import lru_cache
 
-from fastembed import TextEmbedding
+from fastembed import ImageEmbedding, TextEmbedding
 
 from app.config import settings
 
@@ -25,3 +25,28 @@ def embed_passages(texts: list[str]) -> list[list[float]]:
 
 def embed_query(text: str) -> list[float]:
     return next(_model().query_embed(text)).tolist()
+
+
+# --- CLIP (image <-> short text, one shared 512-d space) -------------------
+# Two encoders of the same CLIP model: images through the vision encoder,
+# queries through the text encoder — their outputs are directly comparable.
+# NOTE: CLIP's text encoder truncates at ~77 tokens; it's for short visual
+# queries ("email screenshot"), not paragraphs — that's bge's job.
+
+
+@lru_cache(maxsize=1)
+def _clip_image_model() -> ImageEmbedding:
+    return ImageEmbedding(model_name=settings.clip_image_model)
+
+
+@lru_cache(maxsize=1)
+def _clip_text_model() -> TextEmbedding:
+    return TextEmbedding(model_name=settings.clip_text_model)
+
+
+def clip_embed_image(path: str) -> list[float]:
+    return next(_clip_image_model().embed([path])).tolist()
+
+
+def clip_embed_text(text: str) -> list[float]:
+    return next(_clip_text_model().embed([text])).tolist()

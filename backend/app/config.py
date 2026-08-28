@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     # --- models (used from Phase 1 onward) ---
     text_embedding_model: str = "BAAI/bge-base-en-v1.5"
     text_embedding_dim: int = 768
-    clip_model: str = "ViT-B-32"
+    # CLIP runs via fastembed/ONNX too — the two model names below are the
+    # image and text encoders of the SAME CLIP, so their vectors share a space.
+    clip_image_model: str = "Qdrant/clip-ViT-B-32-vision"
+    clip_text_model: str = "Qdrant/clip-ViT-B-32-text"
     clip_dim: int = 512
     whisper_model: str = "small"  # speech-to-text; "base" is faster, "medium" more accurate
     llm_base_url: str = "http://localhost:11434/v1"  # Ollama (OpenAI-compatible)

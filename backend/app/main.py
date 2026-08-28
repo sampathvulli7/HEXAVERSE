@@ -6,8 +6,9 @@ the final response shape so the frontend can be built against it now.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
@@ -16,9 +17,9 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue
 from app import registry
 from app.config import settings
 from app.db import ensure_collections, get_client
-from app.ingestion import pipeline
+from app.ingestion import image, pipeline
 from app.query.answer import generate_answer
-from app.query.retrieve import retrieve
+from app.query.retrieve import retrieve, retrieve_by_image
 from app.models import (
     ChunkInfo,
     Citation,
@@ -98,11 +99,8 @@ async def ingest(file: UploadFile) -> IngestResponse:
     )
 
 
-@app.post("/query", response_model=QueryResponse)
-def query(request: QueryRequest) -> QueryResponse:
-    hits = retrieve(request.question, request.top_k)
-    answer = generate_answer(request.question, hits)
-    citations = [
+def _citations(hits: list[dict]) -> list[Citation]:
+    return [
         Citation(
             n=i,
             file_id=hit["file_id"],
@@ -114,7 +112,40 @@ def query(request: QueryRequest) -> QueryResponse:
         )
         for i, hit in enumerate(hits, start=1)
     ]
-    return QueryResponse(answer=answer, citations=citations)
+
+
+@app.post("/query", response_model=QueryResponse)
+def query(request: QueryRequest) -> QueryResponse:
+    hits = retrieve(request.question, request.top_k)
+    answer = generate_answer(request.question, hits)
+    return QueryResponse(answer=answer, citations=_citations(hits))
+
+
+@app.post("/query/image", response_model=QueryResponse)
+async def query_by_image(
+    file: UploadFile, question: str = Form(""), top_k: int = Form(6)
+) -> QueryResponse:
+    """Image-as-query: find stored content related to an uploaded image —
+    visually similar images via CLIP, plus documents/transcripts related to
+    what the image shows (via its generated caption)."""
+    suffix = Path(file.filename or "q.png").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=415, detail="Query image must be png/jpg/webp.")
+    tmp_path = settings.storage_dir / f"query_image{suffix}"
+    tmp_path.write_bytes(await file.read())
+
+    try:
+        caption = image.caption_image(str(tmp_path))
+    except Exception:
+        caption = ""  # vision model down: CLIP-only search still works
+
+    hits = retrieve_by_image(str(tmp_path), caption, top_k)
+    effective_question = question.strip() or (
+        "What is this image about, and what related information do the sources contain? "
+        f"The image shows: {caption or '(no description available)'}"
+    )
+    answer = generate_answer(effective_question, hits)
+    return QueryResponse(answer=answer, citations=_citations(hits))
 
 
 @app.get("/files")

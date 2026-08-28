@@ -43,3 +43,12 @@ export function query(question, topK = 6) {
     body: JSON.stringify({ question, top_k: topK }),
   }).then(json)
 }
+
+// Image-as-query: finds visually similar images (CLIP) and documents/audio
+// related to what the image shows. `question` is optional.
+export function queryByImage(file, question = '') {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('question', question)
+  return fetch(`${API}/query/image`, { method: 'POST', body }).then(json)
+}
