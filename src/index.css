@@ -1,20 +1,117 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=switzer@300,400,500,600,700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply text-gray-800 dark:text-gray-200 font-sans antialiased overflow-hidden h-screen w-screen bg-[#FAFAFA] dark:bg-black;
-    background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
-    background-size: 24px 24px;
+  :root {
+    --bg-color: #FAFAFA;
+    --dot-color: rgba(0, 0, 0, 0.15); /* ~0.15-0.18 for light mode */
+    --blob-1-color: #B8D4FF; /* soft blue */
+    --blob-2-color: #D4C5FF; /* soft violet */
+    --blob-3-color: #B8D4FF; /* reuse blue */
   }
-  .dark body {
-    background-image: radial-gradient(circle, #27272a 1px, transparent 1px);
+
+  .dark {
+    --bg-color: #0F1115;
+    --dot-color: rgba(255, 255, 255, 0.08); /* #FFFFFF14 */
+    --blob-1-color: #4C6FFF;
+    --blob-2-color: #8B5CF6;
+    --blob-3-color: #4C6FFF;
+  }
+  
+  body {
+    background-color: var(--bg-color);
+    @apply text-gray-800 dark:text-gray-200 font-sans antialiased overflow-hidden h-screen w-screen transition-colors duration-300;
   }
 }
 
+/* Hero heading font — Switzer thin for premium display treatment */
+.hero-heading {
+  font-family: 'Switzer', sans-serif !important;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+/* ========================================
+   Animated Background — Exact User Spec
+   ======================================== */
+
+.touch-bg-wrapper {
+  /* Canvas dot grid renders on top of this container's background color */
+}
+
+/* Blob container — isolate repaints from page content */
+.blob-container {
+  contain: layout paint style;
+}
+
+/* Base blob class — static filter, GPU-promoted transform */
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.22;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.dark .blob {
+  opacity: 0.18;
+}
+
+/* Individual blob sizing + position + color + animation */
+.blob-1 {
+  width: 550px;
+  height: 550px;
+  top: -5%;
+  left: 20%;
+  animation: drift1 24s ease-in-out infinite;
+}
+.blob-2 {
+  width: 650px;
+  height: 650px;
+  top: -10%;
+  right: 15%;
+  animation: drift2 28s ease-in-out infinite;
+}
+.blob-3 {
+  width: 500px;
+  height: 500px;
+  top: 10%;
+  left: 35%;
+  animation: drift3 32s ease-in-out infinite;
+}
+
+/* Keyframes — animate ONLY transform (no filter/opacity/width/height changes) */
+@keyframes drift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, 30px) scale(1.1); }
+}
+@keyframes drift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30px, 40px) scale(1.05); }
+}
+@keyframes drift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, -30px) scale(1.15); }
+}
+
+/* Mobile perf: only show blob-1, static (no animation) */
+@media (max-width: 768px) {
+  .blob-2,
+  .blob-3 {
+    display: none !important;
+  }
+  .blob-1 {
+    animation: none !important;
+  }
+}
+
+/* ========================================
+   Scrollbar Styles
+   ======================================== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -28,6 +125,13 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8; 
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46; 
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #52525b; 
 }
 
 .hide-scrollbar::-webkit-scrollbar {

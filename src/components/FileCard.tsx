@@ -20,7 +20,7 @@ export function FileCard({ file }: FileCardProps) {
 
   return (
     <div className={cn(
-      "flex flex-col p-3 bg-white dark:bg-zinc-900/80 backdrop-blur-md rounded-2xl border border-gray-100 dark:border-zinc-800/50 shadow-sm",
+      "flex flex-col p-3 bg-white dark:bg-zinc-900 backdrop-blur-md rounded-2xl border border-gray-100 dark:border-zinc-800 shadow-sm",
       "hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer min-w-[140px] max-w-[160px]"
     )}>
       <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-50 dark:bg-zinc-900/50 mb-3">

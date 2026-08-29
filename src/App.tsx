@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import type { RecentChat } from './components/Sidebar';
 import { CommandBox } from './components/CommandBox';
@@ -11,6 +11,8 @@ import { mockFiles } from './lib/mockData';
 import { queryMock } from './lib/api';
 import { Menu, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { TouchBackground } from './components/TouchBackground';
+import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from './lib/utils';
 
 export interface ChatMessage extends Message {
   isStreaming?: boolean;
@@ -23,14 +25,27 @@ const INITIAL_RECENT_CHATS: RecentChat[] = [
   { id: 'c4', title: 'All-Hands Audio Key Moments', time: '1 week ago' },
 ];
 
+const LAYOUT_SPRING = { type: "spring" as const, stiffness: 300, damping: 30 };
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+  
+  // Decoupled view state from messages array so we can navigate back without losing chat
+  const [activeView, setActiveView] = useState<'home' | 'chat'>('home');
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
+  const [activeCitation, setActiveCitation] = useState<{ id: string, triggerTime: number } | null>(null);
   const [files, setFiles] = useState<IngestedFile[]>(mockFiles);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [recentChats, setRecentChats] = useState<RecentChat[]>(INITIAL_RECENT_CHATS);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const conversationActive = activeView === 'chat';
 
   useEffect(() => {
     if (isDarkMode) {
@@ -40,20 +55,44 @@ function App() {
     }
   }, [isDarkMode]);
 
-  const handleSendMessage = async (query: string) => {
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', sidebarCollapsed.toString());
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading, activeView]); // added activeView so it scrolls when returning to chat
+
+  const handleSendMessage = async (query: string, overrideChatId?: string) => {
     if (!query.trim()) return;
 
-    // Add query to Recent Chats list immediately
-    setRecentChats(prev => {
-      const filtered = prev.filter(c => c.title.toLowerCase() !== query.toLowerCase());
-      return [
-        { id: `chat-${Date.now()}`, title: query, time: 'Just now' },
-        ...filtered
-      ].slice(0, 4);
-    });
+    // It's a follow-up if we are in chat view, have messages, and aren't forcing a different chat ID
+    const isFollowUp = !overrideChatId && activeView === 'chat' && messages.length > 0;
+    
+    setActiveView('chat');
+
+    if (!isFollowUp) {
+      const chatIdToUse = overrideChatId || `chat-${Date.now()}`;
+      setCurrentChatId(chatIdToUse);
+      
+      // Only push a new recent chat if we aren't overriding (i.e. loading an existing one)
+      if (!overrideChatId) {
+        setRecentChats(prev => {
+          const filtered = prev.filter(c => c.title.toLowerCase() !== query.toLowerCase());
+          return [
+            { id: chatIdToUse, title: query, time: 'Just now' },
+            ...filtered
+          ].slice(0, 4);
+        });
+      }
+    }
 
     const newUserMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: query };
-    setMessages(prev => [...prev, newUserMsg]);
+    
+    // If it's a new chat, overwrite array. If follow-up, append.
+    setMessages(prev => isFollowUp ? [...prev, newUserMsg] : [newUserMsg]);
     setIsLoading(true);
 
     try {
@@ -67,13 +106,20 @@ function App() {
   };
 
   const handleNewChat = () => {
+    setActiveView('home');
+    setCurrentChatId(null);
     setMessages([]);
-    setActiveCitationId(null);
+    setActiveCitation(null);
   };
 
-  const handleSelectChat = (query: string) => {
-    setMessages([]);
-    handleSendMessage(query);
+  const handleSelectChat = (chatId: string, query: string) => {
+    if (chatId === currentChatId && messages.length > 0) {
+      // Resume existing active chat
+      setActiveView('chat');
+    } else {
+      // Load a different chat
+      handleSendMessage(query, chatId);
+    }
   };
 
   const handleFilesAttached = (newFiles: IngestedFile[]) => {
@@ -81,94 +127,129 @@ function App() {
   };
 
   const allCitations = messages.flatMap(m => m.citations || []);
-  const isChatActive = messages.length > 0;
 
   return (
-    <div className="flex h-screen w-full bg-[#FAFAFA] dark:bg-zinc-950 overflow-hidden relative font-sans text-gray-800 dark:text-gray-200 transition-colors duration-300">
-      <TouchBackground />
+    <div className="flex h-screen w-full overflow-hidden relative font-sans text-gray-800 dark:text-gray-200 transition-colors duration-300">
+      <TouchBackground isDarkMode={isDarkMode} />
       
       <Sidebar 
-        isOpen={sidebarOpen} 
+        isOpen={sidebarOpen}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onClose={() => setSidebarOpen(false)} 
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onNewChat={handleNewChat}
         onSelectChat={handleSelectChat}
         recentChats={recentChats}
-        activeChatTitle={isChatActive ? messages[0].content : null}
+        activeChatTitle={activeView === 'chat' && messages.length > 0 ? messages[0].content : null}
       />
       
-      <main className="flex-1 flex flex-col relative md:ml-72 h-full overflow-hidden transition-all duration-300 z-10">
-        {/* Mobile Hamburger Menu */}
+      <main 
+        className={cn(
+          "flex-1 flex flex-col relative h-full overflow-hidden transition-all duration-300",
+          sidebarCollapsed ? "md:ml-20" : "md:ml-72"
+        )} 
+        style={{ zIndex: 10 }}
+      >
+        {/* Mobile Hamburger */}
         <button 
           onClick={() => setSidebarOpen(true)}
-          className="md:hidden absolute top-4 left-4 z-20 p-2.5 bg-white dark:bg-zinc-900 rounded-full shadow-sm border border-gray-200 dark:border-zinc-800"
+          className="md:hidden absolute top-4 left-4 z-20 p-2.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-full shadow-sm border border-gray-200 dark:border-zinc-800"
         >
           <Menu className="w-5 h-5 text-gray-700 dark:text-gray-300" />
         </button>
 
-        {/* Back Button (Appears during active chat) */}
-        {isChatActive && (
-          <button 
-            onClick={handleNewChat}
-            title="Back to Home Search"
-            className="absolute top-4 left-16 md:left-8 z-20 flex items-center gap-2 px-3.5 py-2 bg-white dark:bg-zinc-900 rounded-full shadow-md border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 text-xs font-medium text-gray-700 dark:text-gray-200 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>Back</span>
-          </button>
-        )}
+        {/* Back to Home Button (Visible only in chat) */}
+        <AnimatePresence>
+          {activeView === 'chat' && (
+            <motion.button 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setActiveView('home')}
+              title="Back to Home"
+              className="hidden md:flex absolute top-4 left-4 z-20 p-2.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+            </motion.button>
+          )}
+        </AnimatePresence>
 
-        {/* Top-Right Theme Toggle */}
+        {/* Theme Toggle */}
         <button 
           onClick={() => setIsDarkMode(!isDarkMode)}
           title="Toggle Light / Dark Mode"
-          className="absolute top-4 right-4 z-20 p-2.5 bg-white dark:bg-zinc-900 rounded-full shadow-sm border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors text-gray-700 dark:text-gray-300"
+          className="absolute top-4 right-4 z-20 p-2.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm rounded-full shadow-sm border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors text-gray-700 dark:text-gray-300"
         >
           {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-blue-600" />}
         </button>
 
-        {/* Main Content Viewport */}
-        <div className="flex-1 overflow-y-auto pb-44 pt-16 md:pt-20 px-4 hide-scrollbar">
-          {!isChatActive ? (
-            <div className="max-w-4xl mx-auto pt-12 md:pt-20">
-              <h1 className="text-5xl md:text-[4.5rem] font-light text-center text-gray-900 dark:text-gray-100 mb-10 tracking-tight">
-                Search everything.
-              </h1>
-              
-              <CommandBox 
-                onSearch={handleSendMessage} 
-                isChatMode={false} 
-                onFilesAttached={handleFilesAttached}
-              />
-              
-              <SuggestionChips onSelect={handleSendMessage} />
-              <RecentlyIngestedCarousel files={files} />
-            </div>
-          ) : (
-            <ChatThread 
-              messages={messages} 
-              isLoading={isLoading} 
-              onCitationClick={setActiveCitationId} 
-              onFollowUpClick={handleSendMessage}
-            />
-          )}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto pb-44 pt-14 md:pt-16 px-4 hide-scrollbar">
+          
+          <AnimatePresence mode="wait">
+            {!conversationActive && (
+              <motion.div
+                key="hero-content"
+                initial={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                transition={{ duration: 0.2 }}
+                className="max-w-4xl mx-auto pt-12 md:pt-24 flex flex-col"
+              >
+                <h1 className="hero-heading text-5xl md:text-[4.5rem] text-center text-gray-900 dark:text-white mb-10">
+                  One search. Every format.
+                </h1>
+                
+                {/* Persistent CommandBox placed here in the DOM flow */}
+                <motion.div layout transition={LAYOUT_SPRING} className="w-full">
+                  <CommandBox 
+                    onSearch={(q) => handleSendMessage(q)} 
+                    isChatMode={conversationActive} 
+                    onFilesAttached={handleFilesAttached}
+                  />
+                </motion.div>
+
+                <div className="w-full">
+                  <SuggestionChips onSelect={(q) => handleSendMessage(q)} />
+                  <RecentlyIngestedCarousel files={files} />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* When in chat mode, the CommandBox is rendered here instead so it remains in the DOM */}
+          <AnimatePresence mode="wait">
+            {conversationActive && (
+              <motion.div
+                key="chat-thread"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <ChatThread 
+                  messages={messages} 
+                  isLoading={isLoading} 
+                  onCitationClick={(id) => setActiveCitation({ id, triggerTime: Date.now() })} 
+                  onFollowUpClick={(q) => handleSendMessage(q)}
+                />
+                <motion.div layout transition={LAYOUT_SPRING} className="w-full">
+                  <CommandBox 
+                    onSearch={(q) => handleSendMessage(q)} 
+                    isChatMode={conversationActive} 
+                    onFilesAttached={handleFilesAttached}
+                  />
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Fixed Docked Command Box (When in active chat mode) */}
-        {isChatActive && (
-          <CommandBox 
-            onSearch={handleSendMessage} 
-            isChatMode={true} 
-            onFilesAttached={handleFilesAttached}
-          />
-        )}
-
-        {/* Citation Drawer */}
         <CitationDrawer 
-          citationId={activeCitationId} 
+          citationId={activeCitation?.id || null} 
+          triggerTime={activeCitation?.triggerTime || 0}
           citations={allCitations} 
-          onClose={() => setActiveCitationId(null)} 
+          onClose={() => setActiveCitation(null)} 
         />
       </main>
     </div>

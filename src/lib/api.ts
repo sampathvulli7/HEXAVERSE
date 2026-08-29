@@ -33,9 +33,9 @@ export async function queryMock(query: string): Promise<Message> {
 • Strategic Alignment: Product Roadmap v2 mandates real-time predictive modeling integration across core dashboard modules [2].
 • Key Priority & Infrastructure: Leadership explicitly emphasized during the All-Hands call that upgrading backend infrastructure scaling and keeping API latency under 50ms is our #1 technical priority [3].`,
         citations: [
-          { id: 'c1', number: 1, fileId: 'f1', snippet: 'Enterprise software revenue saw a robust 15% YoY growth, largely attributed to the successful adoption of our newly released AI analytics suite across top accounts.' },
-          { id: 'c2', number: 2, fileId: 'f2', snippet: 'Q1-Q2 Focus: Integration of real-time predictive modeling into the core dashboard to empower data-driven decisions.' },
-          { id: 'c3', number: 3, fileId: 'f4', timestamp: '14:22', snippet: '...so as we push these predictive models, upgrading our backend infrastructure scaling is our number one priority for this quarter...' }
+          { id: 'c1', number: 1, fileId: 'f1', sourceFile: 'Q3_Earnings_Report.pdf', sourceType: 'pdf', topicName: 'Financial Performance', page: 'Page 4', snippet: 'Enterprise software revenue saw a robust 15% YoY growth, largely attributed to the successful adoption of our newly released AI analytics suite across top accounts.' },
+          { id: 'c2', number: 2, fileId: 'f2', sourceFile: 'Product_Roadmap_v2.docx', sourceType: 'docx', topicName: 'Strategic Alignment', page: 'Page 12', snippet: 'Q1-Q2 Focus: Integration of real-time predictive modeling into the core dashboard to empower data-driven decisions.' },
+          { id: 'c3', number: 3, fileId: 'f4', sourceFile: 'All_Hands_Meeting.mp3', sourceType: 'mp3', topicName: 'Key Priority & Infrastructure', timestamp: '14:22', snippet: '...so as we push these predictive models, upgrading our backend infrastructure scaling is our number one priority for this quarter...' }
         ]
       });
     }, 1200); 

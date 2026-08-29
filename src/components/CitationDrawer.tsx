@@ -10,11 +10,12 @@ import { AudioPlayerTab } from './AudioPlayerTab';
 
 interface CitationDrawerProps {
   citationId: string | null;
+  triggerTime: number;
   citations: Citation[];
   onClose: () => void;
 }
 
-export function CitationDrawer({ citationId, citations, onClose }: CitationDrawerProps) {
+export function CitationDrawer({ citationId, triggerTime, citations, onClose }: CitationDrawerProps) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
   useEffect(() => {
@@ -93,11 +94,11 @@ export function CitationDrawer({ citationId, citations, onClose }: CitationDrawe
           {/* Content area */}
           <div className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-zinc-900/50">
             {file.type === 'pdf' || file.type === 'docx' ? (
-              <PdfViewerTab citation={citation} file={file} />
+              <PdfViewerTab citation={citation} file={file} triggerTime={triggerTime} />
             ) : file.type === 'png' ? (
-              <ImageLightboxTab citation={citation} file={file} />
+              <ImageLightboxTab citation={citation} file={file} triggerTime={triggerTime} />
             ) : file.type === 'mp3' ? (
-              <AudioPlayerTab citation={citation} file={file} />
+              <AudioPlayerTab citation={citation} file={file} triggerTime={triggerTime} />
             ) : null}
           </div>
         </motion.div>
