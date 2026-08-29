@@ -6,11 +6,15 @@ the final response shape so the frontend can be built against it now.
 """
 
 from contextlib import asynccontextmanager
+import io
+import urllib.parse
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from pydantic import BaseModel
+from gtts import gTTS
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -28,7 +32,11 @@ from app.models import (
     Locator,
     QueryRequest,
     QueryResponse,
+    ImageGenerationResponse,
 )
+
+class SynthesizeRequest(BaseModel):
+    text: str
 
 
 @asynccontextmanager
@@ -147,6 +155,70 @@ async def query_by_image(
     )
     answer = generate_answer(effective_question, hits)
     return QueryResponse(answer=answer, citations=_citations(hits))
+
+
+from app.ingestion.audio import _model as whisper_model
+
+@app.post("/query/audio", response_model=QueryResponse)
+async def query_by_audio(
+    file: UploadFile, top_k: int = Form(6)
+) -> QueryResponse:
+    """Voice-as-query: transcribe uploaded audio, then perform semantic search."""
+    suffix = Path(file.filename or "q.wav").suffix.lower()
+    tmp_path = settings.storage_dir / f"query_audio{suffix}"
+    tmp_path.write_bytes(await file.read())
+
+    segments, _ = whisper_model().transcribe(str(tmp_path), vad_filter=True)
+    question = " ".join([seg.text.strip() for seg in segments]).strip()
+    
+    if not question:
+        raise HTTPException(status_code=400, detail="No speech detected.")
+        
+    hits = retrieve(question, top_k)
+    answer = generate_answer(question, hits)
+    return QueryResponse(answer=answer, citations=_citations(hits), transcribed_question=question)
+
+
+@app.post("/synthesize")
+def synthesize(request: SynthesizeRequest) -> StreamingResponse:
+    """Text-to-speech endpoint for the assistant's grounded answers."""
+    # Clean the text of [n] citation markers before speaking
+    import re
+    clean_text = re.sub(r'\[\d+\]', '', request.text)
+    
+    tts = gTTS(text=clean_text, lang='en', slow=False)
+    fp = io.BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return StreamingResponse(fp, media_type="audio/mpeg")
+
+
+@app.post("/generate/image", response_model=ImageGenerationResponse)
+async def generate_image_endpoint(request: QueryRequest) -> ImageGenerationResponse:
+    """Generates an image from a text prompt using Hugging Face Inference API."""
+    if not settings.hf_api_token:
+        raise HTTPException(
+            status_code=401, 
+            detail="HF_API_TOKEN is not set in backend/.env. Please add it to use Text-to-Image."
+        )
+    
+    api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    headers = {"Authorization": f"Bearer {settings.hf_api_token}"}
+    payload = {"inputs": request.question}
+    
+    import httpx
+    import base64
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(api_url, headers=headers, json=payload, timeout=60.0)
+        
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Image generation failed: {resp.text}")
+        
+    img_b64 = base64.b64encode(resp.content).decode("utf-8")
+    content_type = resp.headers.get("content-type", "image/jpeg")
+    
+    return ImageGenerationResponse(image_url=f"data:{content_type};base64,{img_b64}")
 
 
 @app.get("/files")

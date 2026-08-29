@@ -53,6 +53,11 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     citations: list[Citation]
+    transcribed_question: str | None = None
+
+
+class ImageGenerationResponse(BaseModel):
+    image_url: str
 
 
 class FileInfo(BaseModel):

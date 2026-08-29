@@ -53,3 +53,32 @@ export function queryByImage(file, question = '') {
   body.append('question', question)
   return fetch(`${API}/query/image`, { method: 'POST', body }).then(json)
 }
+
+export function queryByAudio(audioBlob) {
+  const body = new FormData()
+  body.append('file', audioBlob, 'voice_query.webm')
+  return fetch(`${API}/query/audio`, { method: 'POST', body }).then(json)
+}
+
+export function generateImage(prompt) {
+  return fetch(`${API}/generate/image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question: prompt, top_k: 1 }),
+  }).then(json)
+}
+
+// Generate the URL for the TTS audio stream
+export function synthesizeUrl(text) {
+  // We POST to synthesize, but since we need an audio src, we could use a GET,
+  // however, since it's a POST in the backend, we can't easily put it in an <audio src>.
+  // We will instead fetch the blob and create an object URL.
+  return fetch(`${API}/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  }).then(res => {
+    if (!res.ok) throw new Error("TTS failed")
+    return res.blob()
+  }).then(blob => URL.createObjectURL(blob))
+}

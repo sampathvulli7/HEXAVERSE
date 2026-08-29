@@ -14,9 +14,10 @@ from app.config import settings
 SYSTEM_PROMPT = """You are a careful research assistant for a document intelligence system.
 Answer the user's question using ONLY the numbered sources provided.
 Rules:
-- Cite the source number in square brackets, e.g. [1] or [2][3], after every claim.
-- If the sources do not contain the answer, say exactly that — never invent information.
-- Be concise and factual."""
+- Cite the source number in square brackets, e.g. [1] or [2][3], after every factual claim.
+- If the sources do not contain the answer, say exactly that — never invent or hallucinate information.
+- Be concise, factual, and direct. Do not use filler phrases like "Based on the sources provided".
+- Maintain a professional and objective tone."""
 
 
 def _describe_locator(hit: dict) -> str:

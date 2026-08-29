@@ -41,16 +41,26 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <span className="brand">HEXA<span className="brand-accent">VERSE</span></span>
-        <span className="tagline">multimodal retrieval · grounded answers · real citations</span>
-        <span
-          className={`health ${backendUp ? 'up' : backendUp === false ? 'down' : ''}`}
-          title={backendUp ? 'backend connected' : 'backend unreachable — start it with: uv run uvicorn app.main:app'}
-        >
-          {backendUp ? 'backend: connected' : backendUp === false ? 'backend: offline' : 'backend: …'}
-        </span>
-      </header>
+      <nav className="top-nav">
+        <div className="nav-brand">
+          <span className="brand">HEXA<span className="brand-accent">VERSE</span></span>
+          <span className="tagline">multimodal retrieval · grounded answers · real citations</span>
+        </div>
+        <div className="nav-links">
+          <a href="#" className="nav-link active">Dashboard</a>
+          <a href="#" className="nav-link">Library</a>
+          <a href="#" className="nav-link">Insights</a>
+          <a href="#" className="nav-link">Settings</a>
+        </div>
+        <div className="nav-status">
+          <span
+            className={`health ${backendUp ? 'up' : backendUp === false ? 'down' : ''}`}
+            title={backendUp ? 'backend connected' : 'backend unreachable — start it with: uv run uvicorn app.main:app'}
+          >
+            {backendUp ? 'Connected' : backendUp === false ? 'Offline' : 'Connecting…'}
+          </span>
+        </div>
+      </nav>
 
       <div className="columns">
         <aside className="sidebar">
