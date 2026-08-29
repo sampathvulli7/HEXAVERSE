@@ -50,3 +50,4 @@ def clip_embed_image(path: str) -> list[float]:
 
 def clip_embed_text(text: str) -> list[float]:
     return next(_clip_text_model().embed([text])).tolist()
+
