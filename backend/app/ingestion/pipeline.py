@@ -94,6 +94,7 @@ def ingest_file(record: dict) -> int:
                 "modality": record["modality"],
                 "file_id": record["file_id"],
                 "source_file": record["filename"],
+                "project": record.get("project", "Default"),
                 "locator": chunk["locator"],
                 "chunk_index": i,
             },
@@ -119,6 +120,7 @@ def ingest_file(record: dict) -> int:
                         "modality": "image",
                         "file_id": record["file_id"],
                         "source_file": record["filename"],
+                        "project": record.get("project", "Default"),
                         "locator": {"image_id": record["file_id"]},
                     },
                 )

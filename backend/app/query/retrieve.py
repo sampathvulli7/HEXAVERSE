@@ -23,9 +23,13 @@ RRF_K = 60
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue, MatchAny
 
-def _search(collection: str, vector: list[float], limit: int) -> list[dict]:
+def _search(collection: str, vector: list[float], limit: int, project: str) -> list[dict]:
     result = get_client().query_points(
-        collection_name=collection, query=vector, limit=limit, with_payload=True
+        collection_name=collection, 
+        query=vector, 
+        limit=limit, 
+        with_payload=True,
+        query_filter=Filter(must=[FieldCondition(key="project", match=MatchValue(value=project))])
     )
     return [{"point_id": str(p.id), "score": p.score, **p.payload} for p in result.points]
 
@@ -85,16 +89,16 @@ def _expand_context(hits: list[dict]) -> list[dict]:
     return hits
 
 
-def retrieve(question: str, top_k: int) -> list[dict]:
+def retrieve(question: str, top_k: int, project: str = "Default") -> list[dict]:
     """Text question -> fused hits across documents, audio and images."""
-    text_hits = _search(settings.text_collection, embed_query(question), top_k)
-    image_hits = _search(settings.image_collection, clip_embed_text(question), top_k)
+    text_hits = _search(settings.text_collection, embed_query(question), top_k, project)
+    image_hits = _search(settings.image_collection, clip_embed_text(question), top_k, project)
     return _expand_context(_fuse([text_hits, image_hits], top_k))
 
 
-def retrieve_by_image(image_path: str, caption: str, top_k: int) -> list[dict]:
+def retrieve_by_image(image_path: str, caption: str, top_k: int, project: str = "Default") -> list[dict]:
     """Image query -> visually similar images (CLIP) + semantically related
     documents/transcripts (via the image's generated caption)."""
-    image_hits = _search(settings.image_collection, clip_embed_image(image_path), top_k)
-    text_hits = _search(settings.text_collection, embed_query(caption), top_k) if caption else []
+    image_hits = _search(settings.image_collection, clip_embed_image(image_path), top_k, project)
+    text_hits = _search(settings.text_collection, embed_query(caption), top_k, project) if caption else []
     return _expand_context(_fuse([image_hits, text_hits], top_k))

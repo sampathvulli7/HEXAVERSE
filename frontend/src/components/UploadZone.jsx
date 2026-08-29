@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import { ingest } from '../api.js'
 
-export default function UploadZone({ onIngested }) {
+export default function UploadZone({ onIngested, project = "Default" }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const [results, setResults] = useState([])
@@ -13,7 +13,7 @@ export default function UploadZone({ onIngested }) {
     for (const file of fileList) {
       setResults((r) => [{ name: file.name, status: 'uploading…' }, ...r])
       try {
-        const res = await ingest(file)
+        const res = await ingest(file, project)
         setResults((r) => [
           {
             name: file.name,

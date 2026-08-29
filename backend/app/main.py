@@ -38,6 +38,8 @@ from app.models import (
 class SynthesizeRequest(BaseModel):
     text: str
 
+class ProjectRequest(BaseModel):
+    name: str
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,8 +67,19 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/projects")
+def create_project_endpoint(req: ProjectRequest):
+    registry.create_project(req.name)
+    return {"status": "created", "name": req.name}
+
+
+@app.get("/projects")
+def list_projects_endpoint() -> list[str]:
+    return registry.list_projects()
+
+
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile) -> IngestResponse:
+async def ingest(file: UploadFile, project: str = Form("Default")) -> IngestResponse:
     modality = registry.detect_modality(file.filename or "")
     if modality is None:
         raise HTTPException(
@@ -78,7 +91,7 @@ async def ingest(file: UploadFile) -> IngestResponse:
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    record = registry.register_file(file.filename, modality, content)
+    record = registry.register_file(file.filename, modality, content, project=project)
 
     if modality not in pipeline.EXTRACTORS:
         return IngestResponse(
@@ -125,14 +138,14 @@ def _citations(hits: list[dict]) -> list[Citation]:
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    hits = retrieve(request.question, request.top_k)
+    hits = retrieve(request.question, request.top_k, request.project)
     answer = generate_answer(request.question, hits)
     return QueryResponse(answer=answer, citations=_citations(hits))
 
 
 @app.post("/query/image", response_model=QueryResponse)
 async def query_by_image(
-    file: UploadFile, question: str = Form(""), top_k: int = Form(6)
+    file: UploadFile, question: str = Form(""), top_k: int = Form(6), project: str = Form("Default")
 ) -> QueryResponse:
     """Image-as-query: find stored content related to an uploaded image —
     visually similar images via CLIP, plus documents/transcripts related to
@@ -148,7 +161,7 @@ async def query_by_image(
     except Exception:
         caption = ""  # vision model down: CLIP-only search still works
 
-    hits = retrieve_by_image(str(tmp_path), caption, top_k)
+    hits = retrieve_by_image(str(tmp_path), caption, top_k, project)
     effective_question = question.strip() or (
         "What is this image about, and what related information do the sources contain? "
         f"The image shows: {caption or '(no description available)'}"
@@ -161,7 +174,7 @@ from app.ingestion.audio import _model as whisper_model
 
 @app.post("/query/audio", response_model=QueryResponse)
 async def query_by_audio(
-    file: UploadFile, top_k: int = Form(6)
+    file: UploadFile, top_k: int = Form(6), project: str = Form("Default")
 ) -> QueryResponse:
     """Voice-as-query: transcribe uploaded audio, then perform semantic search."""
     suffix = Path(file.filename or "q.wav").suffix.lower()
@@ -174,7 +187,7 @@ async def query_by_audio(
     if not question:
         raise HTTPException(status_code=400, detail="No speech detected.")
         
-    hits = retrieve(question, top_k)
+    hits = retrieve(question, top_k, project)
     answer = generate_answer(question, hits)
     return QueryResponse(answer=answer, citations=_citations(hits), transcribed_question=question)
 
@@ -222,8 +235,8 @@ async def generate_image_endpoint(request: QueryRequest) -> ImageGenerationRespo
 
 
 @app.get("/files")
-def files() -> list[FileInfo]:
-    return [FileInfo(**f) for f in registry.list_files()]
+def files(project: str | None = None) -> list[FileInfo]:
+    return [FileInfo(**f) for f in registry.list_files(project)]
 
 
 @app.get("/files/{file_id}")

@@ -81,7 +81,7 @@ function AssistantMessage({ msg, onCite }) {
 }
 
 
-export default function Chat({ onCite }) {
+export default function Chat({ onCite, project = "Default" }) {
   const [messages, setMessages] = useState([])
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
@@ -127,7 +127,7 @@ export default function Chat({ onCite }) {
         const prompt = q.replace('/imagine ', '').trim()
         run(`🎨 /imagine ${prompt}`, () => generateImage(prompt))
     } else {
-        run(q, () => query(q))
+        run(q, () => query(q, 6, project))
     }
   }
 
@@ -135,7 +135,7 @@ export default function Chat({ onCite }) {
     if (!file || busy) return
     const q = question.trim()
     setQuestion('')
-    run(q ? `[Image: ${file.name}] — ${q}` : `[Image: ${file.name}]`, () => queryByImage(file, q))
+    run(q ? `[Image: ${file.name}] — ${q}` : `[Image: ${file.name}]`, () => queryByImage(file, q, project))
   }
 
   async function toggleRecording() {
@@ -155,7 +155,7 @@ export default function Chat({ onCite }) {
 
         mediaRecorder.onstop = () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-          run('🎙️ (Listening...)', () => queryByAudio(audioBlob))
+          run('🎙️ (Listening...)', () => queryByAudio(audioBlob, project))
           stream.getTracks().forEach(track => track.stop())
         }
 

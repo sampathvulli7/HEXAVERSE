@@ -46,3 +46,4 @@ def ensure_collections() -> None:
             client.create_payload_index(name, "file_id", PayloadSchemaType.KEYWORD)
             client.create_payload_index(name, "modality", PayloadSchemaType.KEYWORD)
             client.create_payload_index(name, "chunk_index", PayloadSchemaType.INTEGER)
+            client.create_payload_index(name, "project", PayloadSchemaType.KEYWORD)

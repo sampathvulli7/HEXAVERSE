@@ -48,6 +48,7 @@ class Citation(BaseModel):
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 8
+    project: str = "Default"
 
 
 class QueryResponse(BaseModel):
@@ -65,6 +66,7 @@ class FileInfo(BaseModel):
     filename: str
     modality: Modality
     uploaded_at: str
+    project: str = "Default"
 
 
 class ChunkInfo(BaseModel):
