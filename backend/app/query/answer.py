@@ -37,15 +37,28 @@ def build_sources_block(hits: list[dict]) -> str:
     )
 
 
-def generate_answer(question: str, hits: list[dict]) -> str:
+def generate_answer(question: str, hits: list[dict], model_choice: str | None = None) -> str:
     if not hits:
         return "No relevant content found in the ingested files. Upload some documents first."
 
     user_prompt = f"Sources:\n\n{build_sources_block(hits)}\n\nQuestion: {question}"
+    
+    # Determine the model connection parameters based on model_choice
+    use_nvidia = model_choice and "llama" in model_choice.lower()
+    
+    if use_nvidia:
+        base_url = "https://integrate.api.nvidia.com/v1"
+        api_key = settings.nvidia_api_key or ""
+        model = settings.nvidia_llm_model
+    else:
+        base_url = settings.llm_base_url
+        api_key = settings.llm_api_key
+        model = settings.llm_model
+
     try:
-        client = OpenAI(base_url=settings.llm_base_url, api_key="ollama")
+        client = OpenAI(base_url=base_url, api_key=api_key, timeout=10.0)
         response = client.chat.completions.create(
-            model=settings.llm_model,
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -56,6 +69,6 @@ def generate_answer(question: str, hits: list[dict]) -> str:
     except Exception as exc:  # LLM down/missing — retrieval results still useful
         return (
             f"[LLM unavailable: {exc.__class__.__name__}] "
-            f"Retrieved the sources below; start Ollama (`ollama serve`) and pull "
-            f"`{settings.llm_model}` to get generated answers."
+            f"Retrieved the sources below; please ensure LM Studio or Ollama is running on `{settings.llm_base_url}`, and "
+            f"`{settings.llm_model}` is loaded to get generated answers."
         )

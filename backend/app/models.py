@@ -47,8 +47,9 @@ class Citation(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
-    top_k: int = 8
+    top_k: int = 6
     project: str = "Default"
+    model_choice: str | None = None
 
 
 class QueryResponse(BaseModel):

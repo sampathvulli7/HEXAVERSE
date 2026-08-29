@@ -102,7 +102,8 @@ async def ingest(file: UploadFile, project: str = Form("Default")) -> IngestResp
             detail=f"Stored. Indexing for {modality!r} arrives in Phase 2 (audio) / 3 (image).",
         )
     try:
-        chunks_indexed = pipeline.ingest_file(record)
+        from fastapi.concurrency import run_in_threadpool
+        chunks_indexed = await run_in_threadpool(pipeline.ingest_file, record)
     except Exception as exc:
         return IngestResponse(
             file_id=record["file_id"],
@@ -139,13 +140,13 @@ def _citations(hits: list[dict]) -> list[Citation]:
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
     hits = retrieve(request.question, request.top_k, request.project)
-    answer = generate_answer(request.question, hits)
+    answer = generate_answer(request.question, hits, request.model_choice)
     return QueryResponse(answer=answer, citations=_citations(hits))
 
 
 @app.post("/query/image", response_model=QueryResponse)
 async def query_by_image(
-    file: UploadFile, question: str = Form(""), top_k: int = Form(6), project: str = Form("Default")
+    file: UploadFile, question: str = Form(""), top_k: int = Form(6), project: str = Form("Default"), model_choice: str | None = Form(None)
 ) -> QueryResponse:
     """Image-as-query: find stored content related to an uploaded image —
     visually similar images via CLIP, plus documents/transcripts related to
@@ -166,7 +167,7 @@ async def query_by_image(
         "What is this image about, and what related information do the sources contain? "
         f"The image shows: {caption or '(no description available)'}"
     )
-    answer = generate_answer(effective_question, hits)
+    answer = generate_answer(effective_question, hits, model_choice)
     return QueryResponse(answer=answer, citations=_citations(hits))
 
 
@@ -174,7 +175,7 @@ from app.ingestion.audio import _model as whisper_model
 
 @app.post("/query/audio", response_model=QueryResponse)
 async def query_by_audio(
-    file: UploadFile, top_k: int = Form(6), project: str = Form("Default")
+    file: UploadFile, top_k: int = Form(6), project: str = Form("Default"), model_choice: str | None = Form(None)
 ) -> QueryResponse:
     """Voice-as-query: transcribe uploaded audio, then perform semantic search."""
     suffix = Path(file.filename or "q.wav").suffix.lower()
@@ -188,7 +189,7 @@ async def query_by_audio(
         raise HTTPException(status_code=400, detail="No speech detected.")
         
     hits = retrieve(question, top_k, project)
-    answer = generate_answer(question, hits)
+    answer = generate_answer(question, hits, model_choice)
     return QueryResponse(answer=answer, citations=_citations(hits), transcribed_question=question)
 
 

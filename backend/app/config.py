@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     clip_dim: int = 512
     whisper_model: str = "small"  # speech-to-text; "base" is faster, "medium" more accurate
     llm_base_url: str = "http://localhost:11434/v1"  # Ollama (OpenAI-compatible)
-    llm_model: str = "qwen2.5:7b-instruct"
+    llm_model: str = "qwen2.5:3b"
+    llm_api_key: str = "lm-studio"
+    nvidia_api_key: str | None = None
+    nvidia_llm_model: str = "meta/llama-3.2-11b-vision-instruct"
     vision_model: str = "qwen2.5vl:7b"
     hf_api_token: str | None = None
 
