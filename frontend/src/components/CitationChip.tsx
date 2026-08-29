@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import type { Citation } from '../lib/mockData';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../lib/motion';
 import { FileText, Image as ImageIcon, Music } from 'lucide-react';
 
 interface CitationChipProps {

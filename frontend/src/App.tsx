@@ -13,7 +13,7 @@ import { queryMock, listProjects, createProject, listFiles, queryByImage, queryB
 import { Menu, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { TouchBackground } from './components/TouchBackground';
 import { SettingsModal } from './components/SettingsModal';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from './lib/motion';
 import { cn } from './lib/utils';
 
 export interface ChatMessage extends Message {
@@ -146,8 +146,18 @@ function App() {
       }
       
       setMessages(prev => [...prev, { ...aiMsg, isStreaming: true }]);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      // Never leave the user staring at an empty response state — surface
+      // the failure as a normal message so the app stays conversational.
+      setMessages(prev => [...prev, {
+        id: `ai-error-${Date.now()}`,
+        role: 'ai',
+        content: `Something went wrong while answering: ${error?.message || 'the backend could not be reached'}. Make sure the backend is running (uv run uvicorn app.main:app) and try again.`,
+        citations: [],
+        followUps: [],
+        isStreaming: true,
+      }]);
     } finally {
       setIsLoading(false);
     }

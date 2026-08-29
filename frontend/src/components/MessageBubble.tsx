@@ -23,20 +23,22 @@ export const MessageBubble = memo(function MessageBubble({ message, onCitationCl
   const [charIndex, setCharIndex] = useState(shouldStream ? 0 : safeContent.length);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Streaming: ~40ms interval, 3-4 chars per tick (same perceived speed, ~60% fewer re-renders than 18ms/3-5)
+  // Streaming reveal, scaled to answer length: any answer finishes in ~2.5s
+  // regardless of size (a fixed chars-per-tick made long answers crawl).
   useEffect(() => {
     if (!shouldStream || charIndex >= safeContent.length) return;
 
+    const step = Math.max(3, Math.ceil(safeContent.length / 100));
     intervalRef.current = setInterval(() => {
       setCharIndex(prev => {
-        const next = prev + 3 + Math.floor(Math.random() * 2); // 3-4 chars
+        const next = prev + step + Math.floor(Math.random() * 2);
         if (next >= safeContent.length) {
           if (intervalRef.current) clearInterval(intervalRef.current);
           return safeContent.length;
         }
         return next;
       });
-    }, 40);
+    }, 24);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -102,6 +104,28 @@ export const MessageBubble = memo(function MessageBubble({ message, onCitationCl
         )}>
           {renderedContent}
           {!isDoneStreaming && <span className="inline-block w-1.5 h-5 ml-1 bg-blue-500 rounded-sm animate-pulse align-middle" />}
+
+          {/* Sources row — always visible when citations exist, so sources
+              are navigable even if the model omitted inline [n] markers
+              (the online model frequently does). */}
+          {!isUser && isDoneStreaming && (message.citations?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 dark:border-zinc-800">
+              <span className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mr-1">Sources</span>
+              {message.citations!.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => onCitationClick(c.id)}
+                  title={`${c.sourceFile ?? ''} ${c.page ?? ''}${c.timestamp ? ` · ${c.timestamp}` : ''}`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors max-w-[220px]"
+                >
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">[{c.number}]</span>
+                  <span className="truncate">{c.sourceFile}</span>
+                  {c.timestamp && <span className="text-gray-400 flex-shrink-0">{c.timestamp}</span>}
+                  {c.page && !c.timestamp && <span className="text-gray-400 flex-shrink-0">{c.page.replace('Page ', 'p.')}</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

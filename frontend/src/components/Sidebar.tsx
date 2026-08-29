@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, FolderKanban, FolderPlus, X, Sun, Moon, ChevronDown, Search, FileText, Image as ImageIcon, Music, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../lib/motion';
 
 export interface RecentChat {
   id: string;

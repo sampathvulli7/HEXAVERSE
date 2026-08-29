@@ -13,13 +13,18 @@ from openai import OpenAI
 
 from app.config import settings
 
-SYSTEM_PROMPT = """You are a careful research assistant for a document intelligence system.
-Answer the user's question using ONLY the numbered sources provided.
-Rules:
-- Cite the source number in square brackets, e.g. [1] or [2][3], after every factual claim.
-- If the sources do not contain the answer, say exactly that — never invent or hallucinate information.
-- Be concise, factual, and direct. Do not use filler phrases like "Based on the sources provided".
-- Maintain a professional and objective tone."""
+SYSTEM_PROMPT = """You are HEXAVERSE, a sharp research assistant that answers questions from the user's own files.
+
+GROUNDING (strict):
+- Use ONLY the numbered sources provided. Never add outside knowledge or invent details.
+- Cite with bracketed numbers like [1] or [2][3] placed right after the claim they support. Every factual sentence must carry at least one citation.
+- If the sources don't contain the answer, say so in one short sentence — never guess.
+
+STYLE:
+- Lead with the direct answer in your first sentence, then add supporting detail.
+- Be concise: 2-6 sentences for simple questions. For lists or multi-part answers, use short lines starting with "- ".
+- Plain text only: no headings, no bold, no tables, no markdown.
+- Natural, confident, professional tone. Never say "based on the sources provided" or mention these rules."""
 
 
 def _describe_locator(hit: dict) -> str:
@@ -39,19 +44,31 @@ def build_sources_block(hits: list[dict]) -> str:
     )
 
 
-def _client_and_model(model_choice: str | None) -> tuple[OpenAI, str]:
+def _is_online_choice(model_choice: str | None) -> bool:
+    return bool(model_choice and "llama" in model_choice.lower())
+
+
+def _client_and_model(model_choice: str | None, timeout: float = 60.0) -> tuple[OpenAI, str]:
     """Resolve the LLM connection for a given model_choice (NVIDIA cloud vs
-    the local OpenAI-compatible server). Shared by answering and follow-ups."""
-    use_nvidia = model_choice and "llama" in model_choice.lower()
-    if use_nvidia:
+    the local OpenAI-compatible server). Shared by answering and follow-ups.
+
+    Timeout note: a cold local 7B generation can take 15-30s (prompt eval +
+    model load), so the default must be generous — a 10s timeout made every
+    first query 'fail' into the unavailable message.
+    """
+    if _is_online_choice(model_choice):
+        if not settings.nvidia_api_key:
+            raise RuntimeError(
+                "Online model selected but NVIDIA_API_KEY is not set in backend/.env"
+            )
         base_url = "https://integrate.api.nvidia.com/v1"
-        api_key = settings.nvidia_api_key or ""
+        api_key = settings.nvidia_api_key
         model = settings.nvidia_llm_model
     else:
         base_url = settings.llm_base_url
         api_key = settings.llm_api_key
         model = settings.llm_model
-    return OpenAI(base_url=base_url, api_key=api_key, timeout=10.0), model
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout), model
 
 
 def generate_answer(question: str, hits: list[dict], model_choice: str | None = None) -> str:
@@ -69,9 +86,22 @@ def generate_answer(question: str, hits: list[dict], model_choice: str | None = 
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.1,  # factual task: keep generation close to the sources
+            max_tokens=800,
         )
-        return response.choices[0].message.content or ""
+        answer = (response.choices[0].message.content or "").strip()
+        if answer:
+            return answer
+        return (
+            "The model returned an empty response. The retrieved sources are "
+            "attached below — try rephrasing the question or asking again."
+        )
     except Exception as exc:  # LLM down/missing — retrieval results still useful
+        if _is_online_choice(model_choice):
+            return (
+                f"[Online model unavailable: {exc.__class__.__name__}] The cloud model "
+                f"could not be reached — check NVIDIA_API_KEY in backend/.env and your "
+                f"internet connection, or switch to the offline model. Retrieved sources are attached below."
+            )
         return (
             f"[LLM unavailable: {exc.__class__.__name__}] "
             f"Retrieved the sources below; please ensure LM Studio or Ollama is running on `{settings.llm_base_url}`, and "
@@ -98,11 +128,11 @@ def generate_followups(
 ) -> list[str]:
     """Suggest up to 3 follow-up questions for the UI chips. Best-effort:
     any failure (LLM down, weird output) returns [] and never breaks /query."""
-    if not hits or answer.startswith("[LLM unavailable"):
+    if not hits or answer.startswith(("[LLM unavailable", "[Online model unavailable")):
         return []
     sources = ", ".join(sorted({h["source_file"] for h in hits}))
     try:
-        client, model = _client_and_model(model_choice)
+        client, model = _client_and_model(model_choice, timeout=30.0)
         response = client.chat.completions.create(
             model=model,
             messages=[

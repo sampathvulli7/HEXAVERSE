@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Plus, Mic, ArrowUp, Search, FileText, Image as ImageIcon, Music, File, X, UploadCloud, CheckCircle2, Loader2, MicOff } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../lib/motion';
 import type { IngestedFile } from '../lib/mockData';
 import { suggest } from '../lib/api';
 

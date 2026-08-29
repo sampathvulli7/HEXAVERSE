@@ -1,5 +1,5 @@
 import { X, Settings2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../lib/motion';
 import { cn } from '../lib/utils';
 
 interface SettingsModalProps {

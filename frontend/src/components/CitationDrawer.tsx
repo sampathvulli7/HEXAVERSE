@@ -3,7 +3,7 @@ import { X, FileText, Image as ImageIcon, Music, ExternalLink } from 'lucide-rea
 import type { Citation, IngestedFile } from '../lib/mockData';
 import { mockFiles } from '../lib/mockData';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from '../lib/motion';
 import { PdfViewerTab } from './PdfViewerTab';
 import { ImageLightboxTab } from './ImageLightboxTab';
 import { AudioPlayerTab } from './AudioPlayerTab';

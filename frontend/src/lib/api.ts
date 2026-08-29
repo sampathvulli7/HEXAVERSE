@@ -97,10 +97,13 @@ export function adaptQueryResponse(res: any): Message {
     snippet: c.text,
   }));
 
+  const content = (res.answer ?? '').trim()
+    || 'I could not generate an answer for this query, but I found the sources below — open them directly, or try rephrasing the question.';
+
   return {
     id: `m-${stamp}`,
     role: 'ai',
-    content: res.answer ?? '',
+    content,
     citations,
     followUps: res.followups ?? [],
   };
