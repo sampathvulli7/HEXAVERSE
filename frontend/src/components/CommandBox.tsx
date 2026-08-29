@@ -3,6 +3,7 @@ import { Plus, Mic, ArrowUp, Search, FileText, Image as ImageIcon, Music, File, 
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { IngestedFile } from '../lib/mockData';
+import { suggest } from '../lib/api';
 
 export interface AttachedFile {
   id: string;
@@ -19,17 +20,39 @@ interface CommandBoxProps {
   onFilesAttached?: (files: IngestedFile[]) => void;
   selectedModel?: string;
   onSelectModel?: (model: string) => void;
+  project?: string;
 }
 
-export function CommandBox({ onSearch, isChatMode, onFilesAttached, selectedModel = "qwen2.5:3b", onSelectModel }: CommandBoxProps) {
+export function CommandBox({ onSearch, isChatMode, onFilesAttached, selectedModel = "qwen2.5:3b", onSelectModel, project = "Default" }: CommandBoxProps) {
   const [input, setInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const suggestSeqRef = useRef(0);
+
+  // Live type-ahead: debounce keystrokes, drop out-of-order responses so a
+  // slow earlier request can never overwrite results for the current text.
+  useEffect(() => {
+    const trimmed = input.trim();
+    if (trimmed.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const seq = ++suggestSeqRef.current;
+    const timer = setTimeout(() => {
+      suggest(trimmed, project)
+        .then((results) => {
+          if (suggestSeqRef.current === seq) setSuggestions(results);
+        })
+        .catch(() => { /* suggestions are best-effort */ });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [input, project]);
 
   const adjustHeight = () => {
     if (textareaRef.current) {
@@ -273,6 +296,12 @@ export function CommandBox({ onSearch, isChatMode, onFilesAttached, selectedMode
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSubmit();
+            } else if (e.key === 'Tab' && suggestions.length > 0 && input.trim()) {
+              // Tab completes with the top suggestion, like a browser omnibox
+              e.preventDefault();
+              setInput(suggestions[0]);
+            } else if (e.key === 'Escape') {
+              setSuggestions([]);
             }
           }}
         />
@@ -331,27 +360,50 @@ export function CommandBox({ onSearch, isChatMode, onFilesAttached, selectedMode
         </div>
       </motion.div>
       
+      {/* Live type-ahead suggestions (from past queries + indexed content).
+          Opens downward in hero mode, upward when the box is docked at the
+          bottom in chat mode. */}
       <AnimatePresence>
-        {!isChatMode && isFocused && input.length > 0 && (
+        {isFocused && input.trim().length >= 2 && suggestions.length > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: isChatMode ? 10 : -10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-200 dark:border-zinc-800 py-2 z-10"
+            exit={{ opacity: 0, y: isChatMode ? 10 : -10 }}
+            className={cn(
+              "absolute left-0 right-0 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-200 dark:border-zinc-800 py-2 z-50",
+              isChatMode ? "bottom-full mb-2 mx-4 md:ml-72" : "top-full mt-2"
+            )}
           >
-            <div 
-              onClick={() => { setInput(`${input} in Q3 Earnings`); }}
-              className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/60 cursor-pointer flex items-center gap-3 text-gray-700 dark:text-gray-300"
-            >
-              <Search className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <span><span className="font-semibold">{input}</span> in Q3 Earnings</span>
-            </div>
-            <div 
-              onClick={() => { setInput(`${input} vs Product Roadmap`); }}
-              className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/60 cursor-pointer flex items-center gap-3 text-gray-700 dark:text-gray-300"
-            >
-              <Search className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <span><span className="font-semibold">{input}</span> vs Product Roadmap</span>
+            {suggestions.map((s, i) => {
+              const startsWithTyped = s.toLowerCase().startsWith(input.trim().toLowerCase());
+              const typedLen = input.trim().length;
+              return (
+                <div
+                  key={i}
+                  // onMouseDown so it fires before the textarea's onBlur
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setInput(s);
+                    textareaRef.current?.focus();
+                  }}
+                  className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800/60 cursor-pointer flex items-center gap-3 text-gray-700 dark:text-gray-300"
+                >
+                  <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                  <span className="truncate">
+                    {startsWithTyped ? (
+                      <>
+                        <span>{s.slice(0, typedLen)}</span>
+                        <span className="font-semibold">{s.slice(typedLen)}</span>
+                      </>
+                    ) : (
+                      <span>{s}</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+            <div className="px-4 pt-1.5 text-[10px] text-gray-400 dark:text-gray-600 border-t border-gray-100 dark:border-zinc-800 mt-1">
+              Tab to complete · Esc to dismiss
             </div>
           </motion.div>
         )}

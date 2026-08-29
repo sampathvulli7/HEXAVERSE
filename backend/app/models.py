@@ -56,6 +56,13 @@ class QueryResponse(BaseModel):
     answer: str
     citations: list[Citation]
     transcribed_question: str | None = None
+    followups: list[str] = []  # suggested follow-up questions (may be empty)
+
+
+class SuggestResponse(BaseModel):
+    """Type-ahead completions for the search box."""
+
+    suggestions: list[str]
 
 
 class ImageGenerationResponse(BaseModel):

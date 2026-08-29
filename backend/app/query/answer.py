@@ -7,6 +7,8 @@ If the LLM is unreachable, we degrade gracefully: retrieval results still
 come back, with a notice instead of a generated answer.
 """
 
+import re
+
 from openai import OpenAI
 
 from app.config import settings
@@ -37,15 +39,10 @@ def build_sources_block(hits: list[dict]) -> str:
     )
 
 
-def generate_answer(question: str, hits: list[dict], model_choice: str | None = None) -> str:
-    if not hits:
-        return "No relevant content found in the ingested files. Upload some documents first."
-
-    user_prompt = f"Sources:\n\n{build_sources_block(hits)}\n\nQuestion: {question}"
-    
-    # Determine the model connection parameters based on model_choice
+def _client_and_model(model_choice: str | None) -> tuple[OpenAI, str]:
+    """Resolve the LLM connection for a given model_choice (NVIDIA cloud vs
+    the local OpenAI-compatible server). Shared by answering and follow-ups."""
     use_nvidia = model_choice and "llama" in model_choice.lower()
-    
     if use_nvidia:
         base_url = "https://integrate.api.nvidia.com/v1"
         api_key = settings.nvidia_api_key or ""
@@ -54,9 +51,17 @@ def generate_answer(question: str, hits: list[dict], model_choice: str | None = 
         base_url = settings.llm_base_url
         api_key = settings.llm_api_key
         model = settings.llm_model
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=10.0), model
+
+
+def generate_answer(question: str, hits: list[dict], model_choice: str | None = None) -> str:
+    if not hits:
+        return "No relevant content found in the ingested files. Upload some documents first."
+
+    user_prompt = f"Sources:\n\n{build_sources_block(hits)}\n\nQuestion: {question}"
 
     try:
-        client = OpenAI(base_url=base_url, api_key=api_key, timeout=10.0)
+        client, model = _client_and_model(model_choice)
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -72,3 +77,51 @@ def generate_answer(question: str, hits: list[dict], model_choice: str | None = 
             f"Retrieved the sources below; please ensure LM Studio or Ollama is running on `{settings.llm_base_url}`, and "
             f"`{settings.llm_model}` is loaded to get generated answers."
         )
+
+
+FOLLOWUP_PROMPT = """Given this exchange from a document-search assistant:
+
+Question: {question}
+
+Answer: {answer}
+
+Source files available: {sources}
+
+Suggest 3 short, natural follow-up questions the user would most likely ask
+next, answerable from these source files. Make them specific to the topics
+actually mentioned, not generic. Return ONLY the 3 questions, one per line,
+no numbering or bullets."""
+
+
+def generate_followups(
+    question: str, answer: str, hits: list[dict], model_choice: str | None = None
+) -> list[str]:
+    """Suggest up to 3 follow-up questions for the UI chips. Best-effort:
+    any failure (LLM down, weird output) returns [] and never breaks /query."""
+    if not hits or answer.startswith("[LLM unavailable"):
+        return []
+    sources = ", ".join(sorted({h["source_file"] for h in hits}))
+    try:
+        client, model = _client_and_model(model_choice)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": FOLLOWUP_PROMPT.format(
+                        question=question, answer=answer[:1500], sources=sources
+                    ),
+                }
+            ],
+            temperature=0.7,  # variety is good here, unlike answering
+            max_tokens=120,
+        )
+        raw = response.choices[0].message.content or ""
+        followups = []
+        for line in raw.splitlines():
+            line = re.sub(r"^[\s\d\-\*\.\)]+", "", line).strip()
+            if len(line.split()) >= 3:
+                followups.append(line if line.endswith("?") else line + "?")
+        return followups[:3]
+    except Exception:
+        return []

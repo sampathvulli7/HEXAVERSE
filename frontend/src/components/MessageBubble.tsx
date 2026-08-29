@@ -78,10 +78,9 @@ export const MessageBubble = memo(function MessageBubble({ message, onCitationCl
     });
   }, [visibleText, isUser, message.citations, onCitationClick]);
 
-  const followUps = [
-    "How does latency compare to Q2?",
-    "Show the full architecture diagram"
-  ];
+  // Follow-up suggestions come from the backend per answer (LLM-generated,
+  // grounded in the same sources); empty array = no chips rendered.
+  const followUps = message.followUps ?? [];
 
   return (
     <div className={cn(
@@ -107,7 +106,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onCitationCl
       </div>
 
       {/* Suggested Follow-up chips after AI answers */}
-      {!isUser && isDoneStreaming && onFollowUpClick && (
+      {!isUser && isDoneStreaming && onFollowUpClick && followUps.length > 0 && (
         <motion.div 
           className="flex flex-wrap gap-2 mt-3.5 ml-12"
           initial={{ opacity: 0, y: 6 }}

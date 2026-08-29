@@ -22,7 +22,8 @@ from app import registry
 from app.config import settings
 from app.db import ensure_collections, get_client
 from app.ingestion import image, pipeline
-from app.query.answer import generate_answer
+from app.query import suggest as suggest_module
+from app.query.answer import generate_answer, generate_followups
 from app.query.retrieve import retrieve, retrieve_by_image
 from app.models import (
     ChunkInfo,
@@ -32,6 +33,7 @@ from app.models import (
     Locator,
     QueryRequest,
     QueryResponse,
+    SuggestResponse,
     ImageGenerationResponse,
 )
 
@@ -139,9 +141,17 @@ def _citations(hits: list[dict]) -> list[Citation]:
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
+    suggest_module.record_query(request.question)
     hits = retrieve(request.question, request.top_k, request.project)
     answer = generate_answer(request.question, hits, request.model_choice)
-    return QueryResponse(answer=answer, citations=_citations(hits))
+    followups = generate_followups(request.question, answer, hits, request.model_choice)
+    return QueryResponse(answer=answer, citations=_citations(hits), followups=followups)
+
+
+@app.get("/suggest", response_model=SuggestResponse)
+def suggest(q: str, project: str = "Default") -> SuggestResponse:
+    """Type-ahead completions for the search box (fast — no LLM involved)."""
+    return SuggestResponse(suggestions=suggest_module.suggest(q, project))
 
 
 @app.post("/query/image", response_model=QueryResponse)
@@ -168,7 +178,8 @@ async def query_by_image(
         f"The image shows: {caption or '(no description available)'}"
     )
     answer = generate_answer(effective_question, hits, model_choice)
-    return QueryResponse(answer=answer, citations=_citations(hits))
+    followups = generate_followups(effective_question, answer, hits, model_choice)
+    return QueryResponse(answer=answer, citations=_citations(hits), followups=followups)
 
 
 from app.ingestion.audio import _model as whisper_model
@@ -188,9 +199,16 @@ async def query_by_audio(
     if not question:
         raise HTTPException(status_code=400, detail="No speech detected.")
         
+    suggest_module.record_query(question)
     hits = retrieve(question, top_k, project)
     answer = generate_answer(question, hits, model_choice)
-    return QueryResponse(answer=answer, citations=_citations(hits), transcribed_question=question)
+    followups = generate_followups(question, answer, hits, model_choice)
+    return QueryResponse(
+        answer=answer,
+        citations=_citations(hits),
+        transcribed_question=question,
+        followups=followups,
+    )
 
 
 @app.post("/synthesize")

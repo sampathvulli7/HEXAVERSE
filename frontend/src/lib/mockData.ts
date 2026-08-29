@@ -33,6 +33,7 @@ export interface Message {
   role: 'user' | 'ai';
   content: string;
   citations?: Citation[];
+  followUps?: string[];
 }
 
 export const mockConversation: Message[] = [

@@ -9,7 +9,7 @@ import { CitationDrawer } from './components/CitationDrawer';
 import type { Message, IngestedFile } from './lib/mockData';
 import type { AttachedFile } from './components/CommandBox';
 import { mockFiles } from './lib/mockData';
-import { queryMock, listProjects, createProject, listFiles, queryByImage, queryByAudio } from './lib/api';
+import { queryMock, listProjects, createProject, listFiles, queryByImage, queryByAudio, adaptQueryResponse } from './lib/api';
 import { Menu, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { TouchBackground } from './components/TouchBackground';
 import { SettingsModal } from './components/SettingsModal';
@@ -130,24 +130,10 @@ function App() {
           const type = attachments[0].type;
           if (type === 'png') {
             const res = await queryByImage(file, query, activeProject, selectedModel);
-            aiMsg = {
-              id: `ai-${Date.now()}`,
-              role: 'ai',
-              content: res.answer,
-              citations: (res.citations || []).map((c: any, index: number) => ({
-                id: c.id, number: index + 1, title: c.document_name, text: c.snippet, source: c.document_name
-              }))
-            };
+            aiMsg = adaptQueryResponse(res);
           } else if (type === 'mp3') {
             const res = await queryByAudio(file, activeProject, selectedModel);
-            aiMsg = {
-              id: `ai-${Date.now()}`,
-              role: 'ai',
-              content: res.answer,
-              citations: (res.citations || []).map((c: any, index: number) => ({
-                id: c.id, number: index + 1, title: c.document_name, text: c.snippet, source: c.document_name
-              }))
-            };
+            aiMsg = adaptQueryResponse(res);
           } else {
             // PDF/Docx are ingested, so we just do a mock query
             aiMsg = await queryMock(query, activeProject, selectedModel);
@@ -281,6 +267,7 @@ function App() {
                     onFilesAttached={handleFilesAttached}
                     selectedModel={selectedModel}
                     onSelectModel={setSelectedModel}
+                    project={activeProject}
                   />
                 </motion.div>
 
@@ -314,6 +301,7 @@ function App() {
                     onFilesAttached={handleFilesAttached}
                     selectedModel={selectedModel}
                     onSelectModel={setSelectedModel}
+                    project={activeProject}
                   />
                 </motion.div>
               </motion.div>
