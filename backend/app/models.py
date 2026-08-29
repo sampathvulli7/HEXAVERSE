@@ -47,12 +47,26 @@ class Citation(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
-    top_k: int = 8
+    top_k: int = 6
+    project: str = "Default"
+    model_choice: str | None = None
 
 
 class QueryResponse(BaseModel):
     answer: str
     citations: list[Citation]
+    transcribed_question: str | None = None
+    followups: list[str] = []  # suggested follow-up questions (may be empty)
+
+
+class SuggestResponse(BaseModel):
+    """Type-ahead completions for the search box."""
+
+    suggestions: list[str]
+
+
+class ImageGenerationResponse(BaseModel):
+    image_url: str
 
 
 class FileInfo(BaseModel):
@@ -60,6 +74,7 @@ class FileInfo(BaseModel):
     filename: str
     modality: Modality
     uploaded_at: str
+    project: str = "Default"
 
 
 class ChunkInfo(BaseModel):

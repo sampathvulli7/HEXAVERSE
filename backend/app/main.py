@@ -6,11 +6,15 @@ the final response shape so the frontend can be built against it now.
 """
 
 from contextlib import asynccontextmanager
+import io
+import urllib.parse
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from pydantic import BaseModel
+from gtts import gTTS
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -18,7 +22,8 @@ from app import registry
 from app.config import settings
 from app.db import ensure_collections, get_client
 from app.ingestion import image, pipeline
-from app.query.answer import generate_answer
+from app.query import suggest as suggest_module
+from app.query.answer import generate_answer, generate_followups
 from app.query.retrieve import retrieve, retrieve_by_image
 from app.models import (
     ChunkInfo,
@@ -28,8 +33,15 @@ from app.models import (
     Locator,
     QueryRequest,
     QueryResponse,
+    SuggestResponse,
+    ImageGenerationResponse,
 )
 
+class SynthesizeRequest(BaseModel):
+    text: str
+
+class ProjectRequest(BaseModel):
+    name: str
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,8 +69,19 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/projects")
+def create_project_endpoint(req: ProjectRequest):
+    registry.create_project(req.name)
+    return {"status": "created", "name": req.name}
+
+
+@app.get("/projects")
+def list_projects_endpoint() -> list[str]:
+    return registry.list_projects()
+
+
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile) -> IngestResponse:
+async def ingest(file: UploadFile, project: str = Form("Default")) -> IngestResponse:
     modality = registry.detect_modality(file.filename or "")
     if modality is None:
         raise HTTPException(
@@ -70,7 +93,7 @@ async def ingest(file: UploadFile) -> IngestResponse:
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    record = registry.register_file(file.filename, modality, content)
+    record = registry.register_file(file.filename, modality, content, project=project)
 
     if modality not in pipeline.EXTRACTORS:
         return IngestResponse(
@@ -81,7 +104,8 @@ async def ingest(file: UploadFile) -> IngestResponse:
             detail=f"Stored. Indexing for {modality!r} arrives in Phase 2 (audio) / 3 (image).",
         )
     try:
-        chunks_indexed = pipeline.ingest_file(record)
+        from fastapi.concurrency import run_in_threadpool
+        chunks_indexed = await run_in_threadpool(pipeline.ingest_file, record)
     except Exception as exc:
         return IngestResponse(
             file_id=record["file_id"],
@@ -117,14 +141,22 @@ def _citations(hits: list[dict]) -> list[Citation]:
 
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    hits = retrieve(request.question, request.top_k)
-    answer = generate_answer(request.question, hits)
-    return QueryResponse(answer=answer, citations=_citations(hits))
+    suggest_module.record_query(request.question)
+    hits = retrieve(request.question, request.top_k, request.project)
+    answer = generate_answer(request.question, hits, request.model_choice)
+    followups = generate_followups(request.question, answer, hits, request.model_choice)
+    return QueryResponse(answer=answer, citations=_citations(hits), followups=followups)
+
+
+@app.get("/suggest", response_model=SuggestResponse)
+def suggest(q: str, project: str = "Default") -> SuggestResponse:
+    """Type-ahead completions for the search box (fast — no LLM involved)."""
+    return SuggestResponse(suggestions=suggest_module.suggest(q, project))
 
 
 @app.post("/query/image", response_model=QueryResponse)
 async def query_by_image(
-    file: UploadFile, question: str = Form(""), top_k: int = Form(6)
+    file: UploadFile, question: str = Form(""), top_k: int = Form(6), project: str = Form("Default"), model_choice: str | None = Form(None)
 ) -> QueryResponse:
     """Image-as-query: find stored content related to an uploaded image —
     visually similar images via CLIP, plus documents/transcripts related to
@@ -140,18 +172,90 @@ async def query_by_image(
     except Exception:
         caption = ""  # vision model down: CLIP-only search still works
 
-    hits = retrieve_by_image(str(tmp_path), caption, top_k)
+    hits = retrieve_by_image(str(tmp_path), caption, top_k, project)
     effective_question = question.strip() or (
         "What is this image about, and what related information do the sources contain? "
         f"The image shows: {caption or '(no description available)'}"
     )
-    answer = generate_answer(effective_question, hits)
-    return QueryResponse(answer=answer, citations=_citations(hits))
+    answer = generate_answer(effective_question, hits, model_choice)
+    followups = generate_followups(effective_question, answer, hits, model_choice)
+    return QueryResponse(answer=answer, citations=_citations(hits), followups=followups)
+
+
+from app.ingestion.audio import _model as whisper_model
+
+@app.post("/query/audio", response_model=QueryResponse)
+async def query_by_audio(
+    file: UploadFile, top_k: int = Form(6), project: str = Form("Default"), model_choice: str | None = Form(None)
+) -> QueryResponse:
+    """Voice-as-query: transcribe uploaded audio, then perform semantic search."""
+    suffix = Path(file.filename or "q.wav").suffix.lower()
+    tmp_path = settings.storage_dir / f"query_audio{suffix}"
+    tmp_path.write_bytes(await file.read())
+
+    segments, _ = whisper_model().transcribe(str(tmp_path), vad_filter=True)
+    question = " ".join([seg.text.strip() for seg in segments]).strip()
+    
+    if not question:
+        raise HTTPException(status_code=400, detail="No speech detected.")
+        
+    suggest_module.record_query(question)
+    hits = retrieve(question, top_k, project)
+    answer = generate_answer(question, hits, model_choice)
+    followups = generate_followups(question, answer, hits, model_choice)
+    return QueryResponse(
+        answer=answer,
+        citations=_citations(hits),
+        transcribed_question=question,
+        followups=followups,
+    )
+
+
+@app.post("/synthesize")
+def synthesize(request: SynthesizeRequest) -> StreamingResponse:
+    """Text-to-speech endpoint for the assistant's grounded answers."""
+    # Clean the text of [n] citation markers before speaking
+    import re
+    clean_text = re.sub(r'\[\d+\]', '', request.text)
+    
+    tts = gTTS(text=clean_text, lang='en', slow=False)
+    fp = io.BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return StreamingResponse(fp, media_type="audio/mpeg")
+
+
+@app.post("/generate/image", response_model=ImageGenerationResponse)
+async def generate_image_endpoint(request: QueryRequest) -> ImageGenerationResponse:
+    """Generates an image from a text prompt using Hugging Face Inference API."""
+    if not settings.hf_api_token:
+        raise HTTPException(
+            status_code=401, 
+            detail="HF_API_TOKEN is not set in backend/.env. Please add it to use Text-to-Image."
+        )
+    
+    api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    headers = {"Authorization": f"Bearer {settings.hf_api_token}"}
+    payload = {"inputs": request.question}
+    
+    import httpx
+    import base64
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(api_url, headers=headers, json=payload, timeout=60.0)
+        
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Image generation failed: {resp.text}")
+        
+    img_b64 = base64.b64encode(resp.content).decode("utf-8")
+    content_type = resp.headers.get("content-type", "image/jpeg")
+    
+    return ImageGenerationResponse(image_url=f"data:{content_type};base64,{img_b64}")
 
 
 @app.get("/files")
-def files() -> list[FileInfo]:
-    return [FileInfo(**f) for f in registry.list_files()]
+def files(project: str | None = None) -> list[FileInfo]:
+    return [FileInfo(**f) for f in registry.list_files(project)]
 
 
 @app.get("/files/{file_id}")
@@ -182,3 +286,19 @@ def get_file_chunks(file_id: str) -> list[ChunkInfo]:
     ]
     chunks.sort(key=lambda c: (c.locator.page or 0, c.locator.start_sec or 0.0))
     return chunks
+
+
+@app.delete("/files/{file_id}")
+def delete_file(file_id: str) -> dict:
+    """Delete a file from the vector DB, the registry, and disk."""
+    if registry.get_file(file_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown file_id")
+    
+    client = get_client()
+    selector = Filter(must=[FieldCondition(key="file_id", match=MatchValue(value=file_id))])
+    
+    client.delete(collection_name=settings.text_collection, points_selector=selector)
+    client.delete(collection_name=settings.image_collection, points_selector=selector)
+    
+    registry.delete_file(file_id)
+    return {"status": "deleted"}

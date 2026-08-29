@@ -16,7 +16,7 @@ model that produced them:
 from functools import lru_cache
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, VectorParams, PayloadSchemaType
 
 from app.config import settings
 
@@ -42,3 +42,8 @@ def ensure_collections() -> None:
                 collection_name=name,
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
             )
+            # Create payload indexes for O(1) filtering
+            client.create_payload_index(name, "file_id", PayloadSchemaType.KEYWORD)
+            client.create_payload_index(name, "modality", PayloadSchemaType.KEYWORD)
+            client.create_payload_index(name, "chunk_index", PayloadSchemaType.INTEGER)
+            client.create_payload_index(name, "project", PayloadSchemaType.KEYWORD)

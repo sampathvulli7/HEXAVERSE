@@ -39,35 +39,72 @@ def detect_modality(filename: str) -> Modality | None:
 
 def _load() -> dict:
     if settings.registry_path.exists():
-        return json.loads(settings.registry_path.read_text())
-    return {}
+        data = json.loads(settings.registry_path.read_text())
+        if "projects" not in data:
+            data = {"projects": ["Default"], "files": data}
+        return data
+    return {"projects": ["Default"], "files": {}}
 
 
 def _save(registry: dict) -> None:
     settings.registry_path.write_text(json.dumps(registry, indent=2))
 
 
-def register_file(filename: str, modality: Modality, content: bytes) -> dict:
+def create_project(name: str) -> None:
+    name = name.strip()
+    if not name:
+        return
+    registry = _load()
+    if name not in registry["projects"]:
+        registry["projects"].append(name)
+        _save(registry)
+
+
+def list_projects() -> list[str]:
+    return _load()["projects"]
+
+
+def register_file(filename: str, modality: Modality, content: bytes, project: str = "Default") -> dict:
     """Store the original bytes under a fresh file_id and record it."""
     file_id = uuid.uuid4().hex[:12]
     stored_path = settings.files_dir / f"{file_id}{Path(filename).suffix.lower()}"
     stored_path.write_bytes(content)
 
     registry = _load()
-    registry[file_id] = {
+    if project not in registry["projects"]:
+        registry["projects"].append(project)
+
+    registry["files"][file_id] = {
         "file_id": file_id,
         "filename": filename,
         "modality": modality,
+        "project": project,
         "stored_path": str(stored_path),
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
     }
     _save(registry)
-    return registry[file_id]
-
+    return registry["files"][file_id]
 
 def get_file(file_id: str) -> dict | None:
-    return _load().get(file_id)
+    return _load()["files"].get(file_id)
 
 
-def list_files() -> list[dict]:
-    return sorted(_load().values(), key=lambda f: f["uploaded_at"], reverse=True)
+def list_files(project: str | None = None) -> list[dict]:
+    files = _load()["files"].values()
+    if project:
+        files = [f for f in files if f.get("project", "Default") == project]
+    return sorted(files, key=lambda f: f["uploaded_at"], reverse=True)
+
+
+def delete_file(file_id: str) -> bool:
+    """Remove a file from the registry and delete it from disk."""
+    registry = _load()
+    if file_id not in registry["files"]:
+        return False
+    
+    record = registry["files"].pop(file_id)
+    stored_path = Path(record["stored_path"])
+    stored_path.unlink(missing_ok=True)
+    
+    _save(registry)
+    return True

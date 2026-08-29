@@ -29,7 +29,7 @@ CAPTION_PROMPT = (
 def caption_image(path: str) -> str:
     data = base64.b64encode(Path(path).read_bytes()).decode()
     mime = mimetypes.guess_type(path)[0] or "image/png"
-    client = OpenAI(base_url=settings.llm_base_url, api_key="ollama")
+    client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
     response = client.chat.completions.create(
         model=settings.vision_model,
         messages=[

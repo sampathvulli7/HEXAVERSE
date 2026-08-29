@@ -73,9 +73,15 @@ def ingest_file(record: dict) -> int:
     if extractor is None:
         return 0
 
-    units = extractor(record["stored_path"])
-    chunks = chunk_units(units)
+    try:
+        units = extractor(record["stored_path"])
+        chunks = chunk_units(units)
+    except Exception as e:
+        print(f"[ERROR] Extraction failed for {record['filename']} ({record['modality']}): {e}")
+        return 0
+
     if not chunks:
+        print(f"[WARN] No text could be extracted from {record['filename']}")
         return 0
 
     vectors = embed_passages([c["text"] for c in chunks])
@@ -88,10 +94,12 @@ def ingest_file(record: dict) -> int:
                 "modality": record["modality"],
                 "file_id": record["file_id"],
                 "source_file": record["filename"],
+                "project": record.get("project", "Default"),
                 "locator": chunk["locator"],
+                "chunk_index": i,
             },
         )
-        for chunk, vector in zip(chunks, vectors)
+        for i, (chunk, vector) in enumerate(zip(chunks, vectors))
     ]
     get_client().upsert(collection_name=settings.text_collection, points=points)
     _link_across_formats(points, record)
@@ -112,6 +120,7 @@ def ingest_file(record: dict) -> int:
                         "modality": "image",
                         "file_id": record["file_id"],
                         "source_file": record["filename"],
+                        "project": record.get("project", "Default"),
                         "locator": {"image_id": record["file_id"]},
                     },
                 )

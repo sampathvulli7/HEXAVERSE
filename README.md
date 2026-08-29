@@ -232,8 +232,8 @@ without a source you can open.
 
 ```
 ┌───────────────────────── FRONTEND (Vite + React — built) ──────────────────────┐
-│  Upload zone · chat box · answer with [n] citation chips · citation drawer      │
-│  (PDF page viewer / image lightbox / audio player seeked to timestamp)          │
+│  Multi-tab Dashboard · Project Selector · Chat box · Answer w/ [n] chips        │
+│  Citation drawer (PDF viewer/image lightbox/audio player) · Text-to-Speech    │
 └──────────────────┬─────────────────────────────────┬───────────────────────────┘
                    │ POST /ingest                    │ POST /query
 ┌──────────────────▼─────────────────────────────────▼───────────────────────────┐
@@ -241,12 +241,18 @@ without a source you can open.
 │                                                                                  │
 │  INGESTION (app/ingestion/)                QUERY (app/query/)                    │
 │   route by modality:                        1. embed question (bge + CLIP)       │
-│    pdf.py    → PyMuPDF per page             2. search text_chunks collection     │
-│    docx.py   → python-docx                  3. search image_clip collection      │
-│    audio.py  → faster-whisper (timestamps)  4. fuse ranked lists (RRF)           │
-│    image.py  → vision-LLM caption + OCR     5. build grounded prompt             │
-│                + CLIP pixel embedding       6. call local LLM (Ollama)           │
-│   then: chunk → embed → upsert              7. map [n] citations to origins      │
+│    pdf.py    → PyMuPDF per page             2. filter by active Project          │
+│    docx.py   → python-docx                  3. search text_chunks collection     │
+│    audio.py  → faster-whisper               4. search image_clip collection      │
+│    image.py  → vision-LLM caption + OCR     5. fuse ranked lists (RRF)           │
+│   then: chunk → embed → add Project tag     6. build grounded prompt             │
+│   → upsert payload                          7. call local LLM (Ollama)           │
+│                                             8. map [n] citations to origins      │
+│                                                                                  │
+│  EXTRA CAPABILITIES:                                                             │
+│   POST /synthesize    → Text-to-Speech using gTTS                                │
+│   POST /query/audio   → Voice-as-query using faster-whisper                      │
+│   POST /generate/image→ Stable Diffusion XL (via Hugging Face)                   │
 └──────────┬──────────────────────────────────────────┬───────────────────────────┘
            │                                          │
 ┌──────────▼──────────────────┐        ┌──────────────▼─────────────────────┐
@@ -275,10 +281,16 @@ without a source you can open.
   Zero infrastructure for teammates; setting `QDRANT_URL` in `.env` switches
   to a real Qdrant server with no code changes (see `app/db.py`).
 
+- **Project Workspaces.** Every chunk stored in the vector database is tagged
+  with a `project` string. Retrieval filters results at the database level using
+  an O(1) payload index on `project`, ensuring that the LLM only answers from
+  files within the active project. This guarantees absolute data isolation
+  between different workspaces.
+
 - **Provenance stored on every chunk = the citation system.** Each chunk's
-  payload carries `{file_id, source_file, modality, locator}` where locator
-  is `page` / `start_sec,end_sec` / `image_id`. When the LLM cites [2], the
-  backend looks up chunk 2's payload and the frontend knows exactly what to
+  payload carries `{file_id, source_file, modality, project, locator}` where
+  locator is `page` / `start_sec,end_sec` / `image_id`. When the LLM cites [2],
+  the backend looks up chunk 2's payload and the frontend knows exactly what to
   open. Citations aren't a feature bolted on later — they fall out of
   storing origin from day one.
 
@@ -331,11 +343,18 @@ without a source you can open.
   the paragraph and screenshot it discusses. Tune via `RELATED_MIN_SCORE` /
   `RELATED_MAX_LINKS` in `.env`.
 
+- **Multimodal Output & Voice Interaction.** The backend supports voice queries
+  (`POST /query/audio`) which are transcribed with `faster-whisper` and fed directly
+  into the RAG pipeline. It also supports text-to-speech (`POST /synthesize`) using
+  `gTTS` to read answers aloud, and high-quality image generation via the Hugging
+  Face Inference API (`POST /generate/image`) for creative tasks (prompted via
+  `/imagine`).
+
 - **Adding a modality is one module + one dict entry.** An extractor returns
   `[{"text": ..., "locator": {...}}]` units and registers itself in
   `EXTRACTORS` in [`pipeline.py`](backend/app/ingestion/pipeline.py).
   Chunking, embedding, indexing, retrieval and citations all operate on that
-  shape and need no changes. Phase 2 (audio) = writing `audio.py`.
+  shape and need no changes.
 
 ### Code map
 
@@ -484,7 +503,12 @@ on another machine (see [frontend/README.md](frontend/README.md#run-it)).
       ingest, linked mutually in both directions); citations carry them and
       the drawer shows a "Related across formats" strip
       (transcript ↔ paragraph ↔ screenshot)
-- [ ] **Phase 5** — demo dataset, hardening, one-command startup
+- [x] **Phase 5** — Gold-standard Polish:
+      - **Project isolation**: Separate vector indexes by project context
+      - **Voice-as-query**: Speak to ask questions via microphone
+      - **Text-to-speech**: The assistant reads its answers out loud
+      - **Image Generation**: High quality SDXL image generation (`/imagine`) via HuggingFace
+      - **Enhanced UI**: Modern dashboard with Library, active project selector, Settings, and Insights tabs
 - [x] Frontend (Vite + React): chat with citation chips, drag-and-drop
       upload, library, citation drawer (PDF-at-page / audio-at-timestamp /
       full transcripts) — see [`frontend/README.md`](frontend/README.md);
